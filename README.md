@@ -93,3 +93,9 @@ If you are building under Ubuntu 20.04, GCC 12 is needed along with the 32-bit m
 Then specify -DLINUX_32BIT=ON and wham bam.
 
 Isn't building for weird distros _fun?_
+
+### Contibuting
+
+CloudRedirect is open source. I welcome PRs. I love PRs.
+
+I don't _love_ downstream forks. You have a right to fork and do what you want, but if you make something useful, if you fix issues...I'd much prefer they be sent upstream! Help me help you! If you identify a problem/add a provider/improve the tool in any way, please consider submitting your changes as a PR, rather than keeping them in a downstream fork.
