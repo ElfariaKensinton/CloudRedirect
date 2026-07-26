@@ -94,7 +94,7 @@ Then specify -DLINUX_32BIT=ON and wham bam.
 
 Isn't building for weird distros _fun?_
 
-### Contibuting
+## Contibuting
 
 CloudRedirect is open source. I welcome PRs. I love PRs.
 
