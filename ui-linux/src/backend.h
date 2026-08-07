@@ -24,7 +24,7 @@ class Backend : public QObject
     Q_PROPERTY(bool providerAuthenticated READ providerAuthenticated NOTIFY settingsChanged)
     Q_PROPERTY(bool notificationsEnabled READ notificationsEnabled WRITE setNotificationsEnabled NOTIFY settingsChanged)
     Q_PROPERTY(bool statsSyncEnabled READ statsSyncEnabled WRITE setStatsSyncEnabled NOTIFY settingsChanged)
-
+    Q_PROPERTY(bool syncAchievements READ syncAchievements WRITE setSyncAchievements NOTIFY settingsChanged)
     Q_PROPERTY(bool syncPlaytime READ syncPlaytime WRITE setSyncPlaytime NOTIFY settingsChanged)
     Q_PROPERTY(QString accountId READ accountId NOTIFY statusChanged)
     Q_PROPERTY(QString accountName READ accountName NOTIFY statusChanged)
@@ -53,7 +53,8 @@ public:
     void setNotificationsEnabled(bool enabled);
     bool statsSyncEnabled() const;
     void setStatsSyncEnabled(bool enabled);
-
+    bool syncAchievements() const;
+    void setSyncAchievements(bool enabled);
     bool syncPlaytime() const;
     void setSyncPlaytime(bool enabled);
 
@@ -179,6 +180,7 @@ private:
     // Stats sync -- master switch for playtime sync (achievement schema is
     // handled by SLSsteam, not by CR).
     bool m_statsSyncEnabled = true;
+    bool m_syncAchievements = false;
     bool m_syncPlaytime = false;
 
     struct AppInfo {

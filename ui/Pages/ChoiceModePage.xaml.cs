@@ -26,69 +26,26 @@ public partial class ChoiceModePage : Page
     // M16: Read mode setting off UI thread to avoid slow-disk stall.
     private async Task RefreshStateAsync()
     {
-        var (mode, clientType) = await Task.Run(() =>
-            (SteamDetector.ReadModeSetting(), ReadClientType()));
-        ApplyMode(mode, clientType);
+        var mode = await Task.Run(() => SteamDetector.ReadModeSetting());
+        ApplyMode(mode);
     }
 
-    private static string? ReadClientType()
-    {
-        try
-        {
-            var path = System.IO.Path.Combine(SteamDetector.GetConfigDir(), "settings.json");
-            if (!System.IO.File.Exists(path)) return null;
-            var json = System.IO.File.ReadAllText(path);
-            using var doc = System.Text.Json.JsonDocument.Parse(json);
-            if (doc.RootElement.TryGetProperty("client_type", out var ct) &&
-                ct.ValueKind == System.Text.Json.JsonValueKind.String)
-                return ct.GetString();
-        }
-        catch { }
-        return null;
-    }
-
-    private void ApplyMode(string? mode, string? clientType = null)
+    private void ApplyMode(string? mode)
     {
         _currentMode = mode;
-        bool isThirdParty = clientType == "thirdparty";
 
-        if (_currentMode != null)
+        if (_currentMode == "cloud_redirect")
         {
             CurrentModeBanner.Visibility = Visibility.Visible;
-
-            if (_currentMode == "cloud_redirect")
-            {
-                CurrentModeText.Text = S.Get("Choice_CurrentMode_CloudRedirect");
-                CurrentModeDescription.Text = S.Get("Choice_CurrentMode_CloudRedirect_Desc");
-                // Third-party users shouldn't see STFixer as an option.
-                STFixerCard.Visibility = isThirdParty ? Visibility.Collapsed : Visibility.Visible;
-                CloudRedirectCard.Visibility = Visibility.Collapsed;
-            }
-            else
-            {
-                CurrentModeText.Text = S.Get("Choice_CurrentMode_STFixer");
-                CurrentModeDescription.Text = S.Get("Choice_CurrentMode_STFixer_Desc");
-                STFixerCard.Visibility = Visibility.Collapsed;
-                CloudRedirectCard.Visibility = Visibility.Visible;
-            }
+            CurrentModeText.Text = S.Get("Choice_CurrentMode_CloudRedirect");
+            CurrentModeDescription.Text = S.Get("Choice_CurrentMode_CloudRedirect_Desc");
+            CloudRedirectCard.Visibility = Visibility.Collapsed;
         }
         else
         {
             CurrentModeBanner.Visibility = Visibility.Collapsed;
-            // Third-party users shouldn't see STFixer as an option.
-            STFixerCard.Visibility = isThirdParty ? Visibility.Collapsed : Visibility.Visible;
             CloudRedirectCard.Visibility = Visibility.Visible;
         }
-    }
-
-    private async void STFixerCard_Click(object sender, MouseButtonEventArgs e)
-    {
-        if (!await TryPersistModeAsync("stfixer", cloudRedirectEnabled: false))
-            return;
-
-        var mw = Window.GetWindow(this) as MainWindow;
-        mw?.ApplyMode("stfixer");
-        mw?.RootNavigation.Navigate(typeof(SetupPage));
     }
 
     private async void CloudRedirectCard_Click(object sender, MouseButtonEventArgs e)

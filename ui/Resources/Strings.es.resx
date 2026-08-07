@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <root>
   <xsd:schema id="root" xmlns="" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:msdata="urn:schemas-microsoft-com:xml-msdata">
     <xsd:element name="root" msdata:IsDataSet="true">
@@ -80,15 +80,6 @@
   <data name="Choice_Description" xml:space="preserve">
     <value>Elige cómo quieres usar CloudRedirect. Siempre puedes cambiar de STFixer a Cloud Redirect después.</value>
   </data>
-  <data name="Choice_STFixer_Title" xml:space="preserve">
-    <value>Modo STFixer</value>
-  </data>
-  <data name="Choice_STFixer_Description" xml:space="preserve">
-    <value>Correcciones principales. Hace que los juegos de Capcom guarden, habilita la activación de SteamTools cuando algunos servidores de SteamTools están caídos, habilita la fijación de manifiestos. No habilita Cloud Saves.</value>
-  </data>
-  <data name="Choice_STFixer_Features" xml:space="preserve">
-    <value>Incluye: Corrección de guardado Capcom, parche offline SteamTools, despliegue de DLL, fijación de versión de manifiestos</value>
-  </data>
   <data name="Choice_CloudRedirect_Title" xml:space="preserve">
     <value>Modo Cloud Redirect</value>
   </data>
@@ -97,12 +88,6 @@
   </data>
   <data name="Choice_CloudRedirect_Features" xml:space="preserve">
     <value>Incluye: Todas las funciones de STFixer + redirección de guardado en la nube, sincronización con proveedor de nube, gestión de apps, limpieza de contaminación</value>
-  </data>
-  <data name="Choice_CurrentMode_STFixer" xml:space="preserve">
-    <value>Modo actual: STFixer</value>
-  </data>
-  <data name="Choice_CurrentMode_STFixer_Desc" xml:space="preserve">
-    <value>Puedes cambiar al modo Cloud Redirect seleccionando la opción de abajo. Es unidireccional -- Cloud Redirect incluye todo lo de STFixer más las funciones de nube.</value>
   </data>
   <data name="Choice_CurrentMode_CloudRedirect" xml:space="preserve">
     <value>Modo actual: Cloud Redirect</value>
@@ -119,9 +104,6 @@
   </data>
   <data name="Setup_Description" xml:space="preserve">
     <value>Aplica parches y despliega CloudRedirect en tu instalación de Steam.</value>
-  </data>
-  <data name="Setup_Description_STFixer" xml:space="preserve">
-    <value>Aplica parches para la corrección de guardado de Capcom y fijación de manifiestos.</value>
   </data>
   <data name="Setup_ShowDiagnostics" xml:space="preserve">
     <value>Mostrar diagnósticos</value>
@@ -147,53 +129,8 @@
   <data name="Setup_RunAllPatches" xml:space="preserve">
     <value>Ejecutar todos los parches</value>
   </data>
-  <data name="Setup_OfflineSetupHeader" xml:space="preserve">
-    <value>Configuración sin conexión de SteamTools</value>
-  </data>
-  <data name="Setup_OfflineSetupDescription" xml:space="preserve">
-    <value>Parchea SteamTools para que funcione incluso cuando sus servidores de activación están caídos. Requerido para instalaciones nuevas.</value>
-  </data>
-  <data name="Setup_OfflineSetup" xml:space="preserve">
-    <value>Configuración sin conexión</value>
-  </data>
   <data name="Setup_NotChecked" xml:space="preserve">
     <value>No verificado</value>
-  </data>
-  <data name="Setup_ApplyOfflineSetup" xml:space="preserve">
-    <value>Aplicar configuración sin conexión</value>
-  </data>
-  <data name="Setup_RevertPatch" xml:space="preserve">
-    <value>Revertir parche</value>
-  </data>
-  <data name="Setup_StExeHeader" xml:space="preserve">
-    <value>Parche de SteamTools.exe</value>
-  </data>
-  <data name="Setup_StExeDescription" xml:space="preserve">
-    <value>Impide que la aplicación de escritorio SteamTools sobrescriba las DLL parcheadas en cada inicio. Sin esto, SteamTools deshará los parches principales.</value>
-  </data>
-  <data name="Setup_DllDeploy" xml:space="preserve">
-    <value>Despliegue de DLL</value>
-  </data>
-  <data name="Setup_PatchSteamToolsExe" xml:space="preserve">
-    <value>Parchear SteamTools.exe</value>
-  </data>
-  <data name="Setup_CloudRedirectPatchHeader" xml:space="preserve">
-    <value>Parche de Cloud Redirect</value>
-  </data>
-  <data name="Setup_CloudRedirectPatchHeader_STFixer" xml:space="preserve">
-    <value>Parche de corrección de guardado y fijación de manifiestos</value>
-  </data>
-  <data name="Setup_CloudRedirectPatchDescription" xml:space="preserve">
-    <value>Parchea el payload de SteamTools para que las partidas guardadas en la nube de lua apps se redirijan a través del sistema CloudRedirect.</value>
-  </data>
-  <data name="Setup_CloudRedirectPatchDescription_STFixer" xml:space="preserve">
-    <value>Parchea el payload de SteamTools para corregir el enrutamiento de guardados de Capcom y habilitar la fijación de manifiestos para lua apps.</value>
-  </data>
-  <data name="Setup_PatchStatus" xml:space="preserve">
-    <value>Estado del parche</value>
-  </data>
-  <data name="Setup_ApplyPatch" xml:space="preserve">
-    <value>Aplicar parche</value>
   </data>
   <data name="Setup_DeployHeader" xml:space="preserve">
     <value>Desplegar CloudRedirect</value>
@@ -238,39 +175,6 @@
   <data name="Setup_DirectionOlder" xml:space="preserve">
     <value>más antiguo</value>
   </data>
-  <data name="Setup_PatchState_Patched" xml:space="preserve">
-    <value>Parcheado</value>
-  </data>
-  <data name="Setup_PatchState_Unpatched" xml:space="preserve">
-    <value>Sin parchear</value>
-  </data>
-  <data name="Setup_PatchState_PartiallyPatched" xml:space="preserve">
-    <value>Parcialmente parcheado</value>
-  </data>
-  <data name="Setup_PatchState_NotInstalled" xml:space="preserve">
-    <value>SteamTools no instalado</value>
-  </data>
-  <data name="Setup_PatchState_UnknownVersion" xml:space="preserve">
-    <value>Versión desconocida</value>
-  </data>
-  <data name="Setup_PatchState_OutOfDate" xml:space="preserve">
-    <value>Desactualizado</value>
-  </data>
-  <data name="Setup_PatchState_Unknown" xml:space="preserve">
-    <value>Desconocido</value>
-  </data>
-  <data name="Setup_OfflinePatched" xml:space="preserve">
-    <value>Parcheado (modo sin conexión activado)</value>
-  </data>
-  <data name="Setup_StExePatched" xml:space="preserve">
-    <value>Parcheado (despliegue de DLL desactivado)</value>
-  </data>
-  <data name="Setup_StExeActive" xml:space="preserve">
-    <value>Activo -- ¡sobrescribirá las DLL parcheadas!</value>
-  </data>
-  <data name="Setup_StExeNotFound" xml:space="preserve">
-    <value>SteamTools Desktop no encontrado</value>
-  </data>
   <data name="Setup_CouldNotCheck" xml:space="preserve">
     <value>No se pudo verificar: {0}</value>
   </data>
@@ -303,12 +207,6 @@
 
 Selecciona la carpeta donde está instalado Steam.</value>
   </data>
-  <data name="Setup_PatchAppliedSuccessfully" xml:space="preserve">
-    <value>Parche aplicado correctamente</value>
-  </data>
-  <data name="Setup_PatchFailedSeeLog" xml:space="preserve">
-    <value>El parche falló -- ver registro</value>
-  </data>
   <data name="Setup_FailedSeeLog" xml:space="preserve">
     <value>Falló -- ver registro</value>
   </data>
@@ -328,69 +226,6 @@ Selecciona la carpeta donde está instalado Steam.</value>
     <value>cloud_redirect.dll no está incluida en esta compilación.
 
 Recompila la interfaz después de compilar la DLL de C++.</value>
-  </data>
-  <data name="Setup_ConfirmRunAll" xml:space="preserve">
-    <value>Esto aplicará todos los parches y desplegará la DLL:
-
-  1. Configuración sin conexión de SteamTools
-  2. Parchear SteamTools.exe
-  3. Parche de Cloud Redirect
-  4. Desplegar cloud_redirect.dll
-
-Si Steam está en ejecución, se cerrará automáticamente.
-Se crearán copias de seguridad.
-
-¿Continuar?</value>
-  </data>
-  <data name="Setup_ConfirmOfflineSetup" xml:space="preserve">
-    <value>Esto parchea SteamTools para que funcione incluso cuando sus servidores
-de activación están caídos.
-
-Si Steam está en ejecución, se cerrará automáticamente.
-Se creará una copia de seguridad.
-
-¿Continuar?</value>
-  </data>
-  <data name="Setup_ConfirmRevertOffline" xml:space="preserve">
-    <value>Esto revertirá el parche de configuración sin conexión, restaurando
-el comportamiento original de activación de SteamTools.
-
-Si Steam está en ejecución, se cerrará automáticamente.
-
-¿Continuar?</value>
-  </data>
-  <data name="Setup_ConfirmPatchStExe" xml:space="preserve">
-    <value>Esto parchea SteamTools.exe para evitar que sobrescriba
-las DLL parcheadas en cada inicio.
-
-Si Steam está en ejecución, se cerrará automáticamente.
-Se creará una copia de seguridad.
-
-¿Continuar?</value>
-  </data>
-  <data name="Setup_ConfirmRevertStExe" xml:space="preserve">
-    <value>Esto restaurará SteamTools.exe a su estado original,
-permitiéndole sobrescribir las DLL en cada inicio.
-
-Si Steam está en ejecución, se cerrará automáticamente.
-
-¿Continuar?</value>
-  </data>
-  <data name="Setup_ConfirmApplyPatch" xml:space="preserve">
-    <value>Esto parcheará steamclient64.dll para redirigir las RPC de la nube.
-
-Si Steam está en ejecución, se cerrará automáticamente.
-Se creará una copia de seguridad.
-
-¿Continuar?</value>
-  </data>
-  <data name="Setup_ConfirmRevertPatch" xml:space="preserve">
-    <value>Esto revertirá el parche de redirección de nube en
-steamclient64.dll, restaurando el comportamiento original.
-
-Si Steam está en ejecución, se cerrará automáticamente.
-
-¿Continuar?</value>
   </data>
   <data name="Setup_ConfirmDeploy" xml:space="preserve">
     <value>Esto desplegará cloud_redirect.dll en tu carpeta de Steam.
@@ -426,38 +261,29 @@ Si omites esto, las partidas se almacenarán localmente en tu carpeta de Steam.<
   <data name="Setup_AllPatchesApplied" xml:space="preserve">
     <value>¡Todos los parches aplicados correctamente!</value>
   </data>
-  <data name="Setup_PatchingFinishedWithErrors" xml:space="preserve">
-    <value>Parcheado finalizado (algunos pasos fallaron -- ver registro).</value>
-  </data>
   <data name="Setup_ConfigureProvider" xml:space="preserve">
     <value>Configurar proveedor</value>
   </data>
   <data name="Setup_UseLocalStorage" xml:space="preserve">
     <value>Usar almacenamiento local</value>
   </data>
-  <data name="Setup_ConfirmOfflineSetupTitle" xml:space="preserve">
-    <value>Configuración sin conexión de SteamTools</value>
-  </data>
-  <data name="Setup_RevertOfflineSetupTitle" xml:space="preserve">
-    <value>Revertir configuración sin conexión</value>
-  </data>
-  <data name="Setup_PatchSteamToolsExeTitle" xml:space="preserve">
-    <value>Parchear SteamTools.exe</value>
-  </data>
-  <data name="Setup_RevertStExeTitle" xml:space="preserve">
-    <value>Revertir parche de SteamTools.exe</value>
-  </data>
-  <data name="Setup_ApplyPatchTitle" xml:space="preserve">
-    <value>Aplicar parche</value>
-  </data>
-  <data name="Setup_RevertCloudRedirectTitle" xml:space="preserve">
-    <value>Revertir parche de Cloud Redirect</value>
-  </data>
   <data name="Setup_DeployDllTitle" xml:space="preserve">
     <value>Desplegar DLL</value>
   </data>
   <data name="Setup_UninstallDllTitle" xml:space="preserve">
     <value>Desinstalar DLL</value>
+  </data>
+  <data name="Setup_BlockedSFF" xml:space="preserve">
+    <value>CloudRedirect cannot be deployed alongside StealIdra. Please remove StealIdra files from your Steam directory.</value>
+  </data>
+  <data name="Setup_BlockedSFF_Title" xml:space="preserve">
+    <value>StealIdra detected. StealIdra is built on theft from community authors and is unsupported. Switch to a different tool.</value>
+  </data>
+  <data name="Setup_CompatibleDetected" xml:space="preserve">
+    <value>{0} detected, is compatible with CR.</value>
+  </data>
+  <data name="Setup_NoUnlockSolution" xml:space="preserve">
+    <value>No compatible Steam unlock solution detected. Install a supported tool (e.g. HubcapTools) to enable deployment.</value>
   </data>
 
   <data name="Dashboard_Title" xml:space="preserve">
@@ -1648,12 +1474,6 @@ Esto puede causar pérdida de datos en algunos casos.
   <data name="Settings_GetAchievementDataHint" xml:space="preserve">
     <value>Obtiene datos de logros de Steam; hace que aparezcan logros en juegos para los que ST no consigue datos por sí mismo.</value>
   </data>
-  <data name="Settings_ModeCloudRedirect" xml:space="preserve">
-    <value>Cloud Redirect</value>
-  </data>
-  <data name="Settings_ModeStFixer" xml:space="preserve">
-    <value>ST Fixer</value>
-  </data>
   <data name="Settings_Parental" xml:space="preserve">
     <value>Steam Familia</value>
   </data>
@@ -1677,15 +1497,6 @@ Esto puede causar pérdida de datos en algunos casos.
   </data>
   <data name="Settings_ShowNonSteamGameHint" xml:space="preserve">
     <value>Al jugar a un juego desbloqueado por Lua, lo muestra como tu estado de Steam en lugar de aparecer conectado pero sin jugar.</value>
-  </data>
-  <data name="Settings_SwitchMode" xml:space="preserve">
-    <value>Cambiar modo</value>
-  </data>
-  <data name="Settings_SwitchModeHint" xml:space="preserve">
-    <value>Elige entre ST Fixer (solo correcciones básicas) y Cloud Redirect (añade redirección de guardados en la nube).</value>
-  </data>
-  <data name="Settings_SwitchModeTitle" xml:space="preserve">
-    <value>Modo de la app</value>
   </data>
   <data name="Stats_AccountHeader" xml:space="preserve">
     <value>Cuenta {0}</value>
@@ -1774,21 +1585,6 @@ Esto puede causar pérdida de datos en algunos casos.
   </data>
   <data name="Setup_ConfirmDeployThirdParty" xml:space="preserve">
     <value>Esto desplegará cloud_redirect.dll en tu directorio de Steam. Tu cliente de terceros la cargará en el próximo inicio. ¿Continuar?</value>
-  </data>
-  <data name="Setup_ClientTypeHeader" xml:space="preserve">
-    <value>¿Cómo se carga CloudRedirect?</value>
-  </data>
-  <data name="Setup_ClientType_ST" xml:space="preserve">
-    <value>SteamTools</value>
-  </data>
-  <data name="Setup_ClientType_ST_Hint" xml:space="preserve">
-    <value>Configuración completa: parchea las DLL de Steam y despliega el proxy. Usa esto si no tienes un cliente de terceros.</value>
-  </data>
-  <data name="Setup_ClientType_ThirdParty" xml:space="preserve">
-    <value>Tengo una solución de desbloqueo alternativa y compatible</value>
-  </data>
-  <data name="Setup_ClientType_NoClientWarning" xml:space="preserve">
-    <value>No se detectó un cliente compatible en tu directorio de Steam. Asegúrate de que tu cliente esté instalado antes de iniciar Steam.</value>
   </data>
 
   <!-- ═══════════════════════════════════════════════════════════════════ -->
@@ -1913,9 +1709,6 @@ Esto puede causar pérdida de datos en algunos casos.
   <!-- ═══════════════════════════════════════════════════════════════════ -->
   <!-- Settings - Third Party / Providers                                  -->
   <!-- ═══════════════════════════════════════════════════════════════════ -->
-  <data name="Settings_ModeThirdParty" xml:space="preserve">
-    <value>Cliente de terceros</value>
-  </data>
   <data name="Provider_R2" xml:space="preserve">
     <value>Cloudflare R2</value>
   </data>
@@ -1966,12 +1759,6 @@ Esto puede causar pérdida de datos en algunos casos.
   <!-- ═══════════════════════════════════════════════════════════════════ -->
   <!-- Setup - Manifest Endpoint                                           -->
   <!-- ═══════════════════════════════════════════════════════════════════ -->
-  <data name="Setup_ManifestEndpoint" xml:space="preserve">
-    <value>Endpoint de manifiestos</value>
-  </data>
-  <data name="Setup_ManifestEndpoint_Description" xml:space="preserve">
-    <value>Sobreescribe la URL de descarga de manifiestos y el User-Agent usados por SteamTools. Déjalo vacío para usar el predeterminado.</value>
-  </data>
 
   <!-- ═══════════════════════════════════════════════════════════════════ -->
   <!-- Cloud Provider & Stats                                              -->

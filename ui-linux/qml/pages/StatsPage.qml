@@ -23,7 +23,7 @@ Page {
             }
 
             Label {
-                text: "Changes apply the next time Steam starts."
+                text: "Experimental features! May cause data loss and weird issues! You have been warned!"
                 opacity: 0.7
                 Layout.leftMargin: 20
                 Layout.rightMargin: 20
@@ -49,6 +49,30 @@ Page {
                     Switch {
                         checked: backend ? backend.statsSyncEnabled : true
                         onToggled: { if (backend) backend.statsSyncEnabled = checked }
+                    }
+                }
+            }
+
+            Frame {
+                Layout.fillWidth: true
+                Layout.leftMargin: 20
+                Layout.rightMargin: 20
+                opacity: (backend && backend.statsSyncEnabled) ? 1.0 : 0.5
+
+                RowLayout {
+                    anchors.fill: parent
+                    spacing: 8
+
+                    Label {
+                        text: "Sync Achievements"
+                        font.bold: true
+                        Layout.fillWidth: true
+                    }
+
+                    Switch {
+                        checked: backend ? backend.syncAchievements : false
+                        enabled: backend ? backend.statsSyncEnabled : false
+                        onToggled: { if (backend) backend.syncAchievements = checked }
                     }
                 }
             }

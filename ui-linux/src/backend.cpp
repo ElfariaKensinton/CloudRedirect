@@ -323,7 +323,7 @@ void Backend::loadConfig()
     m_syncFolderPath = obj.value("sync_folder_path").toString();
     m_notificationsEnabled = obj.value("notifications_enabled").toBool(true);
     m_statsSyncEnabled = obj.value("stats_sync_enabled").toBool(true);
-
+    m_syncAchievements = obj.value("sync_achievements").toBool(false);
     m_syncPlaytime = obj.value("sync_playtime").toBool(false);
     fprintf(stderr, "[Backend] loadConfig: provider=%s syncFolder=%s notifications=%s\n",
         m_providerName.toUtf8().constData(), m_syncFolderPath.toUtf8().constData(),
@@ -398,7 +398,7 @@ void Backend::saveConfig()
     obj["sync_folder_path"] = m_syncFolderPath;
     obj["notifications_enabled"] = m_notificationsEnabled;
     obj["stats_sync_enabled"] = m_statsSyncEnabled;
-
+    obj["sync_achievements"] = m_syncAchievements;
     obj["sync_playtime"] = m_syncPlaytime;
 
     // Atomic write: write to temp, then rename
@@ -463,6 +463,14 @@ void Backend::setStatsSyncEnabled(bool enabled)
     emit settingsChanged();
 }
 
+bool Backend::syncAchievements() const { return m_syncAchievements; }
+void Backend::setSyncAchievements(bool enabled)
+{
+    if (m_syncAchievements == enabled) return;
+    m_syncAchievements = enabled;
+    saveConfig();
+    emit settingsChanged();
+}
 
 bool Backend::syncPlaytime() const { return m_syncPlaytime; }
 void Backend::setSyncPlaytime(bool enabled)
@@ -470,6 +478,7 @@ void Backend::setSyncPlaytime(bool enabled)
     if (m_syncPlaytime == enabled) return;
     m_syncPlaytime = enabled;
     saveConfig();
+    emit settingsChanged();
 }
 
 QVariantList Backend::getManagedApps()

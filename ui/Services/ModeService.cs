@@ -98,6 +98,28 @@ public static class ModeService
         FileUtils.AtomicWriteAllText(path, Encoding.UTF8.GetString(ms.ToArray()));
     }
 
+    // Writes client_type to settings.json, preserving other keys.
+    public static void SaveClientType(string clientType)
+    {
+        var path = GetSettingsPath();
+        var dir = Path.GetDirectoryName(path)!;
+        if (!Directory.Exists(dir))
+            Directory.CreateDirectory(dir);
+
+        JsonElement existing = ReadObjectOrDefault(path, skipComments: false);
+
+        using var ms = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(ms, new JsonWriterOptions { Indented = true }))
+        {
+            writer.WriteStartObject();
+            writer.WriteString("client_type", clientType);
+            CopyExcept(existing, "client_type", writer);
+            writer.WriteEndObject();
+        }
+
+        FileUtils.AtomicWriteAllText(path, Encoding.UTF8.GetString(ms.ToArray()));
+    }
+
     private static void SetDllCloudRedirect(bool enabled)
     {
         var path = SteamDetector.GetPinConfigPath();

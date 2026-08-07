@@ -28,9 +28,8 @@ public partial class MainWindow : FluentWindow
 
                 _ = CheckForAutoUpdateAsync();
 
-                var (mode, clientType) = await Task.Run(() =>
-                    (Services.SteamDetector.ReadModeSetting(), ReadClientType()));
-                ApplyMode(mode, clientType);
+                var mode = await Task.Run(() => MigrateLegacyMode());
+                ApplyMode(mode);
 
                 bool needsSetup = await Task.Run(() => NeedsSetup());
 
@@ -47,41 +46,39 @@ public partial class MainWindow : FluentWindow
         };
     }
 
-    private static string? ReadClientType()
+    private static string? MigrateLegacyMode()
     {
-        try
+        var mode = Services.SteamDetector.ReadModeSetting();
+
+        if (mode == null)
+            return null;
+
+        if (mode != "cloud_redirect")
         {
-            var path = Path.Combine(Services.SteamDetector.GetConfigDir(), "settings.json");
-            if (!File.Exists(path)) return null;
-            var json = File.ReadAllText(path);
-            using var doc = System.Text.Json.JsonDocument.Parse(json);
-            if (doc.RootElement.TryGetProperty("client_type", out var ct) &&
-                ct.ValueKind == System.Text.Json.JsonValueKind.String)
-                return ct.GetString();
+            try
+            {
+                Services.ModeService.PersistMode("cloud_redirect", cloudRedirectEnabled: true);
+                mode = "cloud_redirect";
+            }
+            catch { }
         }
-        catch { }
-        return null;
+
+        Services.ModeService.SaveClientType("thirdparty");
+
+        return mode;
     }
 
     public void ApplyMode(string? mode, string? clientType = null)
     {
-        // If clientType not provided, read it fresh from disk.
-        clientType ??= ReadClientType();
-
-        var cloudOnly = mode == "cloud_redirect";
-        var isThirdParty = clientType == "thirdparty";
-        var vis = cloudOnly ? Visibility.Visible : Visibility.Collapsed;
+        var configured = mode == "cloud_redirect";
+        var vis = configured ? Visibility.Visible : Visibility.Collapsed;
         NavCloudProvider.Visibility = vis;
         NavApps.Visibility = vis;
         NavCleanup.Visibility = vis;
         NavCloud760.Visibility = vis;
 
-        // Manifest pinning is ST-specific.
-        NavManifestPinning.Visibility = isThirdParty ? Visibility.Collapsed : Visibility.Visible;
-
-        // In cloud_redirect the mode chooser is hidden from the sidebar; the
-        // switch-back lives under Settings. In STFixer it stays visible.
-        NavChoiceMode.Visibility = cloudOnly ? Visibility.Collapsed : Visibility.Visible;
+        NavManifestPinning.Visibility = Visibility.Collapsed;
+        NavChoiceMode.Visibility = Visibility.Collapsed;
 
         RootNavigation.UpdateLayout();
     }

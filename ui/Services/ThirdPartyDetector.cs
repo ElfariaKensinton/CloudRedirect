@@ -8,26 +8,51 @@ public static class ThirdPartyDetector
 {
     private static readonly string[] ProxyDllNames =
     {
-        "dwmapi.dll",      // OST + HubcapTools
+        "dwmapi.dll",      // OST + HubcapTools + StealIdra
         "xinput1_4.dll",   // OST alternate
     };
 
-    // Distinguish from SteamTools, which also uses dwmapi.dll as a proxy.
-    private static readonly string[] ClientMarkers =
+    // Compatible clients (allow deployment).
+    private static readonly string[] CompatibleMarkers =
     {
         "OpenSteamTool",  // OST
         "HubcapTools",    // HubcapTools
         "hubcaptools",    // HubcapTools (lowercase variant)
     };
 
+    // Blacklisted clients
+    private static readonly string[] BlockedMarkers =
+    {
+        "LumaCore",       // StealIdra
+        "lumacore",       // StealIdra
+    };
+
+    public enum DetectionStatus
+    {
+        NotFound,
+        Compatible,
+        Blocked,
+    }
+
     public sealed record DetectionResult(
-        bool ClientDetected,
+        DetectionStatus Status,
+        string? DetectedTool,
         string? DetectedDll,
         string? DetectedPath);
 
-    /// <summary>Scans for third-party proxy DLLs; distinguishes from SteamTools via marker strings.</summary>
+    // Scans for unlock solutions, classifies result
     public static DetectionResult Detect(string steamPath)
     {
+        var lumaDllPath = Path.Combine(steamPath, "LumaCore.dll");
+        if (File.Exists(lumaDllPath))
+        {
+            return new DetectionResult(
+                Status: DetectionStatus.Blocked,
+                DetectedTool: "StealIdra",
+                DetectedDll: "LumaCore.dll",
+                DetectedPath: lumaDllPath);
+        }
+
         foreach (var name in ProxyDllNames)
         {
             var path = Path.Combine(steamPath, name);
@@ -50,18 +75,29 @@ public static class ThirdPartyDetector
             try { fileBytes = File.ReadAllBytes(path); }
             catch { continue; }
 
-            // Must contain a known client marker to distinguish from ST's proxy.
-            if (!ContainsAnyMarker(fileBytes, ClientMarkers))
-                continue;
+            if (ContainsAnyMarker(fileBytes, BlockedMarkers))
+            {
+                return new DetectionResult(
+                    Status: DetectionStatus.Blocked,
+                    DetectedTool: "StealIdra",
+                    DetectedDll: name,
+                    DetectedPath: path);
+            }
 
-            return new DetectionResult(
-                ClientDetected: true,
-                DetectedDll: name,
-                DetectedPath: path);
+            var toolName = FindMatchingMarker(fileBytes, CompatibleMarkers);
+            if (toolName != null)
+            {
+                return new DetectionResult(
+                    Status: DetectionStatus.Compatible,
+                    DetectedTool: toolName,
+                    DetectedDll: name,
+                    DetectedPath: path);
+            }
         }
 
         return new DetectionResult(
-            ClientDetected: false,
+            Status: DetectionStatus.NotFound,
+            DetectedTool: null,
             DetectedDll: null,
             DetectedPath: null);
     }
@@ -74,6 +110,16 @@ public static class ThirdPartyDetector
                 return true;
         }
         return false;
+    }
+
+    private static string? FindMatchingMarker(byte[] fileBytes, string[] markers)
+    {
+        foreach (var marker in markers)
+        {
+            if (IndexOf(fileBytes, Encoding.ASCII.GetBytes(marker)) >= 0)
+                return marker;
+        }
+        return null;
     }
 
     private static int IndexOf(byte[] haystack, byte[] needle)

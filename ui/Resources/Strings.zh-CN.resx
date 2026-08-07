@@ -152,15 +152,6 @@
   <data name="Choice_Description" xml:space="preserve">
     <value>选择您想如何使用 CloudRedirect。您可以随时在 ST Fixer 和 Cloud Redirect 之间切换。</value>
   </data>
-  <data name="Choice_STFixer_Title" xml:space="preserve">
-    <value>ST Fixer 模式</value>
-  </data>
-  <data name="Choice_STFixer_Description" xml:space="preserve">
-    <value>仅核心修复。解决（不仅限于）Capcom 游戏的保存问题，修复下载时的"无互联网连接"，启用清单固定，使所有具有成就的游戏都能正常工作。不启用云功能。</value>
-  </data>
-  <data name="Choice_STFixer_Features" xml:space="preserve">
-    <value>包括：Capcom 保存修复、SteamTools 离线补丁、DLL 部署、清单版本固定</value>
-  </data>
   <data name="Choice_CloudRedirect_Title" xml:space="preserve">
     <value>Cloud Redirect 模式</value>
   </data>
@@ -169,12 +160,6 @@
   </data>
   <data name="Choice_CloudRedirect_Features" xml:space="preserve">
     <value>所有 ST Fixer 功能 + 云存档到您选择的提供商 + 成就和游戏时长同步</value>
-  </data>
-  <data name="Choice_CurrentMode_STFixer" xml:space="preserve">
-    <value>当前模式：ST Fixer</value>
-  </data>
-  <data name="Choice_CurrentMode_STFixer_Desc" xml:space="preserve">
-    <value>您可以通过选择下面的选项切换到 Cloud Redirect 模式。Cloud Redirect 包括 ST Fixer 中的所有内容以及云功能。您可以随时切换回来。</value>
   </data>
   <data name="Choice_CurrentMode_CloudRedirect" xml:space="preserve">
     <value>当前模式：Cloud Redirect</value>
@@ -210,29 +195,11 @@
   <data name="Setup_Description" xml:space="preserve">
     <value>应用补丁并将 CloudRedirect 部署到您的 Steam 安装。</value>
   </data>
-  <data name="Setup_Description_STFixer" xml:space="preserve">
-    <value>为 Capcom 保存修复和清单固定应用补丁。</value>
-  </data>
   <data name="Setup_Description_ThirdParty" xml:space="preserve">
     <value>将 cloud_redirect.dll 部署到您的 Steam 文件夹。您的第三方客户端（OST、HubcapTools 等）将自动加载它 - 无需其他补丁。</value>
   </data>
   <data name="Setup_ConfirmDeployThirdParty" xml:space="preserve">
     <value>这将把 cloud_redirect.dll 部署到您的 Steam 目录。您的第三方客户端将在下次启动时加载它。继续？</value>
-  </data>
-  <data name="Setup_ClientTypeHeader" xml:space="preserve">
-    <value>CloudRedirect 如何加载？</value>
-  </data>
-  <data name="Setup_ClientType_ST" xml:space="preserve">
-    <value>SteamTools</value>
-  </data>
-  <data name="Setup_ClientType_ST_Hint" xml:space="preserve">
-    <value>完整设置：修补 Steam 的 DLL 并部署代理。如果您没有第三方客户端，请使用此选项。</value>
-  </data>
-  <data name="Setup_ClientType_ThirdParty" xml:space="preserve">
-    <value>我有一个替代的兼容解锁方案</value>
-  </data>
-  <data name="Setup_ClientType_NoClientWarning" xml:space="preserve">
-    <value>在您的 Steam 目录中未检测到兼容的客户端。在启动 Steam 之前确保已安装您的客户端。</value>
   </data>
   <data name="Setup_ShowDiagnostics" xml:space="preserve">
     <value>显示诊断</value>
@@ -258,53 +225,8 @@
   <data name="Setup_RunAllPatches" xml:space="preserve">
     <value>运行所有补丁</value>
   </data>
-  <data name="Setup_OfflineSetupHeader" xml:space="preserve">
-    <value>SteamTools 离线设置</value>
-  </data>
-  <data name="Setup_OfflineSetupDescription" xml:space="preserve">
-    <value>修补 SteamTools，使其即使在激活服务器停机时也能正常工作。首次安装必需。</value>
-  </data>
-  <data name="Setup_OfflineSetup" xml:space="preserve">
-    <value>离线设置</value>
-  </data>
   <data name="Setup_NotChecked" xml:space="preserve">
     <value>未检查</value>
-  </data>
-  <data name="Setup_ApplyOfflineSetup" xml:space="preserve">
-    <value>应用离线设置</value>
-  </data>
-  <data name="Setup_RevertPatch" xml:space="preserve">
-    <value>还原补丁</value>
-  </data>
-  <data name="Setup_StExeHeader" xml:space="preserve">
-    <value>SteamTools.exe 补丁</value>
-  </data>
-  <data name="Setup_StExeDescription" xml:space="preserve">
-    <value>禁止 SteamTools 桌面应用在每次启动时覆盖已打补丁的 DLL。如果没有这个，SteamTools 将撤消核心补丁。</value>
-  </data>
-  <data name="Setup_DllDeploy" xml:space="preserve">
-    <value>DLL 部署</value>
-  </data>
-  <data name="Setup_PatchSteamToolsExe" xml:space="preserve">
-    <value>修补 SteamTools.exe</value>
-  </data>
-  <data name="Setup_CloudRedirectPatchHeader" xml:space="preserve">
-    <value>Cloud Redirect 补丁</value>
-  </data>
-  <data name="Setup_CloudRedirectPatchHeader_STFixer" xml:space="preserve">
-    <value>保存修复和清单固定补丁</value>
-  </data>
-  <data name="Setup_CloudRedirectPatchDescription" xml:space="preserve">
-    <value>修补 SteamTools 有效载荷，使 Lua 应用的云存档通过 CloudRedirect 系统路由。</value>
-  </data>
-  <data name="Setup_CloudRedirectPatchDescription_STFixer" xml:space="preserve">
-    <value>修补 SteamTools 有效载荷以修复 Capcom 保存路由并为 Lua 应用启用清单固定。</value>
-  </data>
-  <data name="Setup_PatchStatus" xml:space="preserve">
-    <value>补丁状态</value>
-  </data>
-  <data name="Setup_ApplyPatch" xml:space="preserve">
-    <value>应用补丁</value>
   </data>
   <data name="Setup_DeployHeader" xml:space="preserve">
     <value>部署 CloudRedirect</value>
@@ -350,39 +272,6 @@
   <data name="Setup_DirectionOlder" xml:space="preserve">
     <value>更旧</value>
   </data>
-  <data name="Setup_PatchState_Patched" xml:space="preserve">
-    <value>已打补丁</value>
-  </data>
-  <data name="Setup_PatchState_Unpatched" xml:space="preserve">
-    <value>未打补丁</value>
-  </data>
-  <data name="Setup_PatchState_PartiallyPatched" xml:space="preserve">
-    <value>部分打补丁</value>
-  </data>
-  <data name="Setup_PatchState_NotInstalled" xml:space="preserve">
-    <value>未安装 SteamTools</value>
-  </data>
-  <data name="Setup_PatchState_UnknownVersion" xml:space="preserve">
-    <value>未知版本</value>
-  </data>
-  <data name="Setup_PatchState_OutOfDate" xml:space="preserve">
-    <value>已过期</value>
-  </data>
-  <data name="Setup_PatchState_Unknown" xml:space="preserve">
-    <value>未知</value>
-  </data>
-  <data name="Setup_OfflinePatched" xml:space="preserve">
-    <value>已打补丁（离线模式已启用）</value>
-  </data>
-  <data name="Setup_StExePatched" xml:space="preserve">
-    <value>已打补丁（DLL 部署已禁用）</value>
-  </data>
-  <data name="Setup_StExeActive" xml:space="preserve">
-    <value>活动 - 将覆盖已打补丁的 DLL！</value>
-  </data>
-  <data name="Setup_StExeNotFound" xml:space="preserve">
-    <value>未找到 SteamTools 桌面版</value>
-  </data>
   <data name="Setup_CouldNotCheck" xml:space="preserve">
     <value>无法检查：{0}</value>
   </data>
@@ -415,12 +304,6 @@
 
 请选择 Steam 的安装文件夹。</value>
   </data>
-  <data name="Setup_PatchAppliedSuccessfully" xml:space="preserve">
-    <value>补丁应用成功</value>
-  </data>
-  <data name="Setup_PatchFailedSeeLog" xml:space="preserve">
-    <value>补丁失败 - 请查看日志</value>
-  </data>
   <data name="Setup_FailedSeeLog" xml:space="preserve">
     <value>失败 - 请查看日志</value>
   </data>
@@ -440,64 +323,6 @@
     <value>cloud_redirect.dll 未嵌入此构建。
 
 在构建 C++ DLL 后重新构建 UI。</value>
-  </data>
-  <data name="Setup_ConfirmRunAll" xml:space="preserve">
-    <value>这将应用所有补丁并部署 DLL：
-
-  1. SteamTools 离线设置
-  2. 修补 SteamTools.exe
-  3. Cloud Redirect 补丁
-  4. 部署 cloud_redirect.dll
-
-如果 Steam 正在运行，它将自动关闭。
-将创建备份。
-
-继续？</value>
-  </data>
-  <data name="Setup_ConfirmOfflineSetup" xml:space="preserve">
-    <value>这将修补 SteamTools，使其即使在激活服务器停机时也能正常工作。
-
-如果 Steam 正在运行，它将自动关闭。
-将创建备份。
-
-继续？</value>
-  </data>
-  <data name="Setup_ConfirmRevertOffline" xml:space="preserve">
-    <value>这将还原离线设置补丁，恢复原始的 SteamTools 激活行为。
-
-如果 Steam 正在运行，它将自动关闭。
-
-继续？</value>
-  </data>
-  <data name="Setup_ConfirmPatchStExe" xml:space="preserve">
-    <value>这将修补 SteamTools.exe，使其停止在每次启动时覆盖已打补丁的 DLL。
-
-如果 Steam 正在运行，它将自动关闭。
-将创建备份。
-
-继续？</value>
-  </data>
-  <data name="Setup_ConfirmRevertStExe" xml:space="preserve">
-    <value>这将恢复 SteamTools.exe 到其原始状态，允许它在启动时再次覆盖 DLL。
-
-如果 Steam 正在运行，它将自动关闭。
-
-继续？</value>
-  </data>
-  <data name="Setup_ConfirmApplyPatch" xml:space="preserve">
-    <value>这将修补 steamclient64.dll 以重定向云 RPC。
-
-如果 Steam 正在运行，它将自动关闭。
-将创建备份。
-
-继续？</value>
-  </data>
-  <data name="Setup_ConfirmRevertPatch" xml:space="preserve">
-    <value>这将还原 steamclient64.dll 上的云重定向补丁，恢复原始行为。
-
-如果 Steam 正在运行，它将自动关闭。
-
-继续？</value>
   </data>
   <data name="Setup_ConfirmDeploy" xml:space="preserve">
     <value>这将把 cloud_redirect.dll 部署到您的 Steam 文件夹。
@@ -533,38 +358,29 @@
   <data name="Setup_AllPatchesApplied" xml:space="preserve">
     <value>所有补丁应用成功！</value>
   </data>
-  <data name="Setup_PatchingFinishedWithErrors" xml:space="preserve">
-    <value>补丁完成（某些步骤失败 - 请查看日志）。</value>
-  </data>
   <data name="Setup_ConfigureProvider" xml:space="preserve">
     <value>配置提供商</value>
   </data>
   <data name="Setup_UseLocalStorage" xml:space="preserve">
     <value>使用本地存储</value>
   </data>
-  <data name="Setup_ConfirmOfflineSetupTitle" xml:space="preserve">
-    <value>SteamTools 离线设置</value>
-  </data>
-  <data name="Setup_RevertOfflineSetupTitle" xml:space="preserve">
-    <value>还原离线设置</value>
-  </data>
-  <data name="Setup_PatchSteamToolsExeTitle" xml:space="preserve">
-    <value>修补 SteamTools.exe</value>
-  </data>
-  <data name="Setup_RevertStExeTitle" xml:space="preserve">
-    <value>还原 SteamTools.exe 补丁</value>
-  </data>
-  <data name="Setup_ApplyPatchTitle" xml:space="preserve">
-    <value>应用补丁</value>
-  </data>
-  <data name="Setup_RevertCloudRedirectTitle" xml:space="preserve">
-    <value>还原 Cloud Redirect 补丁</value>
-  </data>
   <data name="Setup_DeployDllTitle" xml:space="preserve">
     <value>部署 DLL</value>
   </data>
   <data name="Setup_UninstallDllTitle" xml:space="preserve">
     <value>卸载 DLL</value>
+  </data>
+  <data name="Setup_BlockedSFF" xml:space="preserve">
+    <value>CloudRedirect cannot be deployed alongside StealIdra. Please remove StealIdra files from your Steam directory.</value>
+  </data>
+  <data name="Setup_BlockedSFF_Title" xml:space="preserve">
+    <value>StealIdra detected. StealIdra is built on theft from community authors and is unsupported. Switch to a different tool.</value>
+  </data>
+  <data name="Setup_CompatibleDetected" xml:space="preserve">
+    <value>{0} detected, is compatible with CR.</value>
+  </data>
+  <data name="Setup_NoUnlockSolution" xml:space="preserve">
+    <value>No compatible Steam unlock solution detected. Install a supported tool (e.g. HubcapTools) to enable deployment.</value>
   </data>
 
   <!-- ═══════════════════════════════════════════════════════════════════ -->
@@ -1512,24 +1328,6 @@
   <data name="Settings_Reset" xml:space="preserve">
     <value>重置</value>
   </data>
-  <data name="Settings_SwitchMode" xml:space="preserve">
-    <value>切换模式</value>
-  </data>
-  <data name="Settings_SwitchModeTitle" xml:space="preserve">
-    <value>应用模式</value>
-  </data>
-  <data name="Settings_SwitchModeHint" xml:space="preserve">
-    <value>在 ST Fixer（仅核心修复）和 Cloud Redirect（添加云存档重定向）之间选择。</value>
-  </data>
-  <data name="Settings_ModeStFixer" xml:space="preserve">
-    <value>ST Fixer</value>
-  </data>
-  <data name="Settings_ModeCloudRedirect" xml:space="preserve">
-    <value>Cloud Redirect</value>
-  </data>
-  <data name="Settings_ModeThirdParty" xml:space="preserve">
-    <value>第三方客户端</value>
-  </data>
   <data name="Settings_About" xml:space="preserve">
     <value>关于</value>
   </data>
@@ -1986,12 +1784,6 @@
   <!-- ═══════════════════════════════════════════════════════════════════ -->
   <!-- Setup Page                                                          -->
   <!-- ═══════════════════════════════════════════════════════════════════ -->
-  <data name="Setup_ManifestEndpoint" xml:space="preserve">
-    <value>清单端点</value>
-  </data>
-  <data name="Setup_ManifestEndpoint_Description" xml:space="preserve">
-    <value>覆盖 SteamTools 使用的清单下载 URL 和 User-Agent。留空则使用默认值。</value>
-  </data>
 
   <!-- ═══════════════════════════════════════════════════════════════════ -->
   <!-- Cloud Provider & Stats                                              -->

@@ -223,32 +223,6 @@
                            Click="ResetData_Click" />
             </ui:CardControl>
 
-            <StackPanel x:Name="ModeCard">
-                <TextBlock Text="{res:Loc Settings_SwitchMode}"
-                           FontSize="20" FontWeight="SemiBold"
-                           Foreground="{DynamicResource TextFillColorPrimaryBrush}"
-                           Margin="0,0,0,12" />
-
-                <ui:CardControl Margin="0,0,0,32">
-                    <ui:CardControl.Header>
-                        <StackPanel>
-                            <TextBlock Text="{res:Loc Settings_SwitchModeTitle}"
-                                       FontWeight="SemiBold"
-                                       Foreground="{DynamicResource TextFillColorPrimaryBrush}" />
-                            <TextBlock Text="{res:Loc Settings_SwitchModeHint}"
-                                       Foreground="{DynamicResource TextFillColorSecondaryBrush}"
-                                       TextWrapping="Wrap" />
-                        </StackPanel>
-                    </ui:CardControl.Header>
-                    <ComboBox x:Name="ModeComboBox"
-                              Width="200"
-                              SelectionChanged="ModeComboBox_SelectionChanged">
-                        <ComboBoxItem Content="{res:Loc Settings_ModeStFixer}" Tag="stfixer" />
-                        <ComboBoxItem Content="{res:Loc Settings_ModeCloudRedirect}" Tag="cloud_redirect" />
-                    </ComboBox>
-                </ui:CardControl>
-            </StackPanel>
-
             <TextBlock Text="{res:Loc Settings_About}"
                        FontSize="20" FontWeight="SemiBold"
                        Foreground="{DynamicResource TextFillColorPrimaryBrush}"

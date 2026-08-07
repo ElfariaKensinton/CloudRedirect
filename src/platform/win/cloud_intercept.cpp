@@ -4682,26 +4682,23 @@ void Init(const std::string& steamPath, bool cloudSaveOnly, CR_NotifyFn notifyCa
             MetadataSync::schemaFetch.load() ? 1 : 0,
             MetadataSync::steamToolsPresent.load() ? 1 : 0,
             MetadataSync::StGateOpen() ? 1 : 0);
-        if (!cloudSaveOnly) {
-            // Per-user toggle: defaults to true (set at declaration) when absent.
-            if (cfg["show_non_steam_game"].type == Json::Type::Bool)
-                g_showNonSteamGame = cfg["show_non_steam_game"].boolean();
-            if (cfg["parental_bypass_playtime"].type == Json::Type::Bool)
-                g_parentalBypassPlaytime = cfg["parental_bypass_playtime"].boolean();
-            if (cfg["parental_ignore_playtime"].type == Json::Type::Bool)
-                g_parentalIgnorePlaytime = cfg["parental_ignore_playtime"].boolean();
-            LOG("[NS] Parental: bypass=%d, ignore_playtime=%d",
-                g_parentalBypassPlaytime.load(), g_parentalIgnorePlaytime.load());
+        // Defaults to true when absent.
+        if (cfg["show_non_steam_game"].type == Json::Type::Bool)
+            g_showNonSteamGame = cfg["show_non_steam_game"].boolean();
+        if (cfg["parental_bypass_playtime"].type == Json::Type::Bool)
+            g_parentalBypassPlaytime = cfg["parental_bypass_playtime"].boolean();
+        if (cfg["parental_ignore_playtime"].type == Json::Type::Bool)
+            g_parentalIgnorePlaytime = cfg["parental_ignore_playtime"].boolean();
+        LOG("[NS] Parental: bypass=%d, ignore_playtime=%d",
+            g_parentalBypassPlaytime.load(), g_parentalIgnorePlaytime.load());
 
-            if (g_parentalBypassPlaytime.load() || g_parentalIgnorePlaytime.load()) {
-                ParentalBypass::PatchParentalSignatureCheck();
-                ParentalBypass::InstallParentalSettingsHook(g_parentalBypassPlaytime.load());
-            }
-            if (g_parentalIgnorePlaytime.load()) {
-                ParentalBypass::PatchPlaytimeEnforcement();
-            }
-
-        } // !cloudSaveOnly (parental)
+        if (g_parentalBypassPlaytime.load() || g_parentalIgnorePlaytime.load()) {
+            ParentalBypass::PatchParentalSignatureCheck();
+            ParentalBypass::InstallParentalSettingsHook(g_parentalBypassPlaytime.load());
+        }
+        if (g_parentalIgnorePlaytime.load()) {
+            ParentalBypass::PatchPlaytimeEnforcement();
+        }
 
         bool autoUpdate = cfg["auto_update_dll"].type == Json::Type::Bool
             ? cfg["auto_update_dll"].boolean()

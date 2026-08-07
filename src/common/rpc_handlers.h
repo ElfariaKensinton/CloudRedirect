@@ -1,6 +1,7 @@
 #pragma once
 #include "cloud_rpc_utils.h"
 #include "protobuf.h"
+#include "batch_merge.h"
 #include <vector>
 
 namespace CloudIntercept {

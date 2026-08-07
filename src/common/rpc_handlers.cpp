@@ -1518,6 +1518,10 @@ RpcResult HandleBeginFileUpload(uint32_t appId, const std::vector<PB::Field>& re
     if (!RequireAccountId("ClientBeginFileUpload", appId, accountId)) {
         return PB::Writer();
     }
+    if (BatchTracker_ActiveId(accountId, appId) == 0) {
+        LOG("[NS-UP] BeginFileUpload app=%u REJECTED: no active batch (BeginBatch failed or missing)", appId);
+        return RpcResult(PB::Writer(), kEResultFail);
+    }
     std::string urlHost = "127.0.0.1:" + std::to_string(port);
     std::string rootToken = ExtractRootToken(filename);
     std::string cleanName = StripRootToken(filename);
@@ -2064,45 +2068,50 @@ RpcResult HandleCompleteBatch(uint32_t appId, const std::vector<PB::Field>& reqB
                 break;
             }
 
+            // Apply the batch as a delta; rebuilding from local cache truncates
+            // thin manifests.
             uint64_t localCN = LocalStorage::GetChangeNumber(accountId, appId);
+
+            CloudIntercept::BatchMergeInputs mergeIn;
+            mergeIn.cloudCn = publishState.cn;
+            mergeIn.localCn = localCN;
             if (publishState.cn < localCN) {
-                LOG("[NS] CompleteBatch(pub) app %u: cloud CN %llu < local CN %llu, "
-                    "rebuilding file list from local manifest",
-                    appId, (unsigned long long)publishState.cn, (unsigned long long)localCN);
-                publishState.files.clear();
-                auto localManifest = CloudStorage::LoadLocalManifest(accountId, appId);
-                for (const auto& [name, me] : localManifest) {
-                    CloudStorage::FileEntry fe;
-                    fe.sha = me.sha;
-                    fe.timestamp = me.timestamp;
-                    fe.size = me.size;
-                    publishState.files[name] = std::move(fe);
+                for (const auto& [name, me] : CloudStorage::LoadLocalManifest(accountId, appId)) {
+                    CloudIntercept::BatchFileMeta bm;
+                    bm.sha = me.sha;
+                    bm.timestamp = me.timestamp;
+                    bm.size = me.size;
+                    mergeIn.localManifest[name] = std::move(bm);
                 }
             }
-
-            for (const auto& filename : *deletesCopy)
-                publishState.files.erase(filename);
-
+            mergeIn.deletes = *deletesCopy;
+            mergeIn.filePlatforms = *filePlatformsCopy;
             for (const auto& filename : *uploadsCopy) {
                 if (IsReservedBlobFilename(filename)) continue;
-                CloudStorage::FileEntry fe;
+                CloudIntercept::BatchFileMeta bm;
                 auto metaIt = uploadMetaCopy->find(filename);
                 if (metaIt != uploadMetaCopy->end()) {
-                    fe.sha = metaIt->second.sha;
-                    fe.timestamp = metaIt->second.timestamp;
-                    fe.size = metaIt->second.size;
+                    bm.sha = metaIt->second.sha;
+                    bm.timestamp = metaIt->second.timestamp;
+                    bm.size = metaIt->second.size;
                 } else {
                     auto entry = LocalStorage::GetFileEntry(accountId, appId, filename);
                     if (!entry.has_value()) continue;
-                    fe.sha = entry->sha;
-                    fe.timestamp = entry->timestamp;
-                    fe.size = entry->rawSize;
+                    bm.sha = entry->sha;
+                    bm.timestamp = entry->timestamp;
+                    bm.size = entry->rawSize;
                 }
-                auto ptIt = filePlatformsCopy->find(filename);
-                fe.platformsToSync = (ptIt != filePlatformsCopy->end())
-                    ? ptIt->second : 0xFFFFFFFFu;
-                publishState.files[filename] = std::move(fe);
+                mergeIn.uploads.push_back(filename);
+                mergeIn.uploadMeta[filename] = std::move(bm);
             }
+
+            size_t cloudBefore = publishState.files.size();
+            publishState.files = CloudIntercept::MergeBatchIntoPublishState(
+                std::move(publishState.files), mergeIn);
+            LOG("[NS] CompleteBatch(pub) app %u: merged batch delta onto cloud state "
+                "(cloud CN %llu, local CN %llu; %zu cloud file(s) in, %zu published)",
+                appId, (unsigned long long)publishState.cn,
+                (unsigned long long)localCN, cloudBefore, publishState.files.size());
 
             // Capture PICS quota into cloud state for cross-machine propagation.
             {

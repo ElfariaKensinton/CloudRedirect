@@ -66,6 +66,7 @@ set(COMMON_SOURCES
     src/common/cloud_staging.cpp
     src/common/pending_ops_journal.cpp
     src/common/rpc_handlers.cpp
+    src/common/batch_merge.cpp
     src/common/cloud_work_queue.cpp
     src/common/cloud_storage.cpp
     src/common/local_storage.cpp
@@ -305,6 +306,13 @@ if(EXISTS ${CMAKE_SOURCE_DIR}/tests/autocloud_native_tests.cpp)
     )
     target_include_directories(rpc_handlers_tests PRIVATE src/common)
     add_test(NAME rpc_handlers_tests COMMAND rpc_handlers_tests)
+
+    add_executable(batch_merge_tests
+        tests/batch_merge_tests.cpp
+        src/common/batch_merge.cpp
+    )
+    target_include_directories(batch_merge_tests PRIVATE src/common)
+    add_test(NAME batch_merge_tests COMMAND batch_merge_tests)
 
     add_executable(cloud_staging_tests
         tests/cloud_staging_tests.cpp
