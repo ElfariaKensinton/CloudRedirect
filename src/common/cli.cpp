@@ -450,11 +450,23 @@ std::string CmdListAllStats(const std::string& provider) {
 
     bool supported = false;
     auto hits = prov->SearchByName("stats.json", &supported);
-    prov->Shutdown();
 
     if (!supported) {
-        return JsonError("Search not supported for provider: " + provider);
+        // Providers without server-side search (S3/R2/local): enumerate the
+        // bucket and fetch every stats.json ourselves.
+        const std::string suffix = "/stats.json";
+        for (const auto& f : prov->List("")) {
+            if (f.path.size() < suffix.size() ||
+                f.path.compare(f.path.size() - suffix.size(), suffix.size(), suffix) != 0)
+                continue;
+            ICloudProvider::SearchHit hit;
+            hit.path = f.path;
+            if (prov->Download(f.path, hit.content))
+                hits.push_back(std::move(hit));
+        }
     }
+
+    prov->Shutdown();
 
     const std::string accountScope = "0";
     std::unordered_set<std::string> seen;  // "<account>/<app>"
