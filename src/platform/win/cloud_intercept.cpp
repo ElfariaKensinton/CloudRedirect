@@ -1145,6 +1145,8 @@ static void DrainPlaytimeUpdateQueueOnNetThread() {
             g_playtimeUpdateQueue.pop();
         }
     }
+    if (!batch.empty())
+        LOG("Drain: flushing %zu pending playtime push(es)", batch.size());
     for (auto& body : batch)
         ApplyLastPlayedUpdate(body);
 }
@@ -6795,6 +6797,10 @@ static void ShutdownImpl() {
 
     // Flush stats/playtime to cloud (hooks drained, store is safe).
     StatsHandlers::Shutdown();
+
+    // Flush pending pushes before teardown, else a session ending right before close
+    // never persists. Safe here: steamclient64 is still mapped, vtable not yet restored.
+    DrainPlaytimeUpdateQueueOnNetThread();
 
     // Restore vtable pointers; skip if steamclient64 unloaded or hook drain timed out.
     if (!hookDrainTimedOut && g_vtableHookInstalled.load(std::memory_order_acquire) && g_steamClientBase) {
