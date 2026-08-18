@@ -400,9 +400,11 @@ static void EnsureInitialized() {
                 uint32_t accountId = CloudIntercept::GetAccountId();
                 if (accountId == 0) return false;
                 std::vector<uint8_t> data;
-                if (!CloudStorage::DownloadCloudMetadataWithLegacyFallback(
-                        accountId, CloudIntercept::kAccountScopeAppId, "stats.json",
-                        nullptr, data) || data.empty())
+                auto fetch = CloudStorage::FetchCloudMetadataStatus(
+                    accountId, CloudIntercept::kAccountScopeAppId, "stats.json", data);
+                if (fetch == CloudStorage::MetadataFetch::Error)
+                    return false; // transient failure -> keep the existing cloud cache
+                if (fetch == CloudStorage::MetadataFetch::Missing || data.empty())
                     return true;  // no account blob yet -> empty (not a failure)
                 Json::Value root = Json::Parse(
                     std::string(reinterpret_cast<const char*>(data.data()), data.size()));
