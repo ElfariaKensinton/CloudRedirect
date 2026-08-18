@@ -4674,14 +4674,10 @@ void Init(const std::string& steamPath, bool cloudSaveOnly, CR_NotifyFn notifyCa
             MetadataSync::syncAchievements = cfg["sync_achievements"].boolean();
         if (cfg["sync_playtime"].type == Json::Type::Bool)
             MetadataSync::syncPlaytime = cfg["sync_playtime"].boolean();
-        // Schema fetch (default on).
-        if (cfg["schema_fetch"].type == Json::Type::Bool)
-            MetadataSync::schemaFetch = cfg["schema_fetch"].boolean();
-        LOG("[Stats] Sync gates: achievements=%d, playtime=%d, schemaFetch=%d, "
-            "steamTools=%d, stGateOpen=%d",
+        // schema_fetch is retired and no longer honored; it stays off regardless of config.
+        LOG("[Stats] Sync gates: achievements=%d, playtime=%d, steamTools=%d, stGateOpen=%d",
             MetadataSync::syncAchievements.load() ? 1 : 0,
             MetadataSync::syncPlaytime.load() ? 1 : 0,
-            MetadataSync::schemaFetch.load() ? 1 : 0,
             MetadataSync::steamToolsPresent.load() ? 1 : 0,
             MetadataSync::StGateOpen() ? 1 : 0);
         // Defaults to true when absent.
