@@ -922,6 +922,9 @@ extern "C" bool hook_IsCloudEnabledForApp(void* pThis, unsigned int appId)
 void CloudHooks::BeginShutdown() {
     g_shuttingDown.store(true, std::memory_order_release);
     GamesPlayedHook::Remove();
+    if (g_statsSyncEnabled.load(std::memory_order_relaxed)) {
+        LivePlaytime::DrainOnNetThread();
+    }
     LivePlaytime::RemoveUserCapture();
     for (int i = 0; i < 300 && g_hookRefCount.load(std::memory_order_acquire) > 0; ++i)
         usleep(10000); // 10ms, up to 3s total
