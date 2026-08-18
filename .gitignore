@@ -20,3 +20,4 @@ docs/
 tools/
 flatpak/release.sh
 ui/native/
+release-*/
