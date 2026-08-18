@@ -5581,7 +5581,9 @@ static uint8_t __fastcall BAsyncSendHook(void* pMsg, uint32_t connHandle) {
                     if (!observeBytes.empty()) {
                         LOG("[Stats] GamesPlayed observed (emsg=%u, %zu bytes) -> session tracking",
                             emsg, observeBytes.size());
-                        StatsHandlers::ObserveGamesPlayed(observeBytes.data(), observeBytes.size());
+                        auto ended = StatsHandlers::ObserveGamesPlayed(
+                            observeBytes.data(), observeBytes.size());
+                        QueueLocalPlaytimePush(ended);
                     }
                 }
                 // Non-Steam-game spoof (hard-gated to ST clients).
@@ -6750,6 +6752,14 @@ static void InstallExitProcessHook() {
 
 void DrainPlaytimeUpdates() {
     DrainPlaytimeUpdateQueueOnNetThread();
+}
+
+void QueueLocalPlaytimePush(const std::vector<uint32_t>& endedApps) {
+    if (endedApps.empty()) return;
+    PB::Writer body = StatsHandlers::BuildLastPlayedNotificationBody(endedApps);
+    if (body.Size() == 0) return;
+    QueueLastPlayedUpdate(body.Data());
+    LOG("[Stats] Queued live playtime update for %zu local app(s)", endedApps.size());
 }
 
 // Shutdown entry points: ExitProcess IAT hook (production) and DllMain
