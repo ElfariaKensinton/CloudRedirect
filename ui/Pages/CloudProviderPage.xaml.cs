@@ -561,7 +561,8 @@ public partial class CloudProviderPage : Page
     {
         try
         {
-            var json = File.ReadAllText(path);
+            var json = Services.TokenFile.ReadJson(path);
+            if (string.IsNullOrEmpty(json)) return false;
             using var doc = System.Text.Json.JsonDocument.Parse(json);
             var root = doc.RootElement;
             return root.TryGetProperty("account_id", out var a) && a.GetString()?.Length > 0
@@ -604,7 +605,8 @@ public partial class CloudProviderPage : Page
 
         try
         {
-            var json = File.ReadAllText(path);
+            var json = Services.TokenFile.ReadJson(path);
+            if (string.IsNullOrEmpty(json)) return;
             using var doc = System.Text.Json.JsonDocument.Parse(json);
             var root = doc.RootElement;
 
@@ -663,7 +665,7 @@ public partial class CloudProviderPage : Page
         var json = System.Text.Json.JsonSerializer.Serialize(cred,
             new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
 
-        Services.FileUtils.AtomicWriteAllText(credPath, json);
+        Services.TokenFile.WriteJson(credPath, json);
 
         // Point the config at this credentials file.
         TokenPathBox.Text = credPath;
@@ -683,7 +685,8 @@ public partial class CloudProviderPage : Page
     {
         try
         {
-            var json = File.ReadAllText(path);
+            var json = Services.TokenFile.ReadJson(path);
+            if (string.IsNullOrEmpty(json)) return false;
             using var doc = System.Text.Json.JsonDocument.Parse(json);
             var root = doc.RootElement;
             return root.TryGetProperty("access_key_id", out var a) && a.GetString()?.Length > 0
@@ -730,7 +733,8 @@ public partial class CloudProviderPage : Page
 
         try
         {
-            var json = File.ReadAllText(path);
+            var json = Services.TokenFile.ReadJson(path);
+            if (string.IsNullOrEmpty(json)) return;
             using var doc = System.Text.Json.JsonDocument.Parse(json);
             var root = doc.RootElement;
 
@@ -808,7 +812,7 @@ public partial class CloudProviderPage : Page
         var json = cred.ToJsonString(
             new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
 
-        Services.FileUtils.AtomicWriteAllText(credPath, json);
+        Services.TokenFile.WriteJson(credPath, json);
 
         // Point the config at this credentials file.
         TokenPathBox.Text = credPath;
