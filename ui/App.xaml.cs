@@ -4,6 +4,7 @@ using System.IO;
 using System.Text.Json;
 using System.Threading;
 using System.Windows.Media;
+using System.Windows.Interop;
 using Wpf.Ui.Appearance;
 
 namespace CloudRedirect;
