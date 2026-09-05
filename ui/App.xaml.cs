@@ -3,6 +3,7 @@ using System.Globalization;
 using System.IO;
 using System.Text.Json;
 using System.Threading;
+using System.Windows.Media;
 using Wpf.Ui.Appearance;
 
 namespace CloudRedirect;
@@ -12,8 +13,27 @@ public partial class App : System.Windows.Application
     protected override void OnStartup(System.Windows.StartupEventArgs e)
     {
         ApplyLanguagePreference();
+
+        // WPF hardware rendering is unreliable under Wine/CrossOver on macOS.
+        // Force the supported software pipeline for the whole WPF process.
+        if (IsWine())
+            RenderOptions.ProcessRenderMode = RenderMode.SoftwareOnly;
+
         base.OnStartup(e);
         ApplicationThemeManager.Apply(ApplicationTheme.Dark);
+    }
+
+    private static bool IsWine()
+    {
+        try
+        {
+            using var wineKey = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(@"Software\Wine");
+            return wineKey != null;
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     /// <summary>
