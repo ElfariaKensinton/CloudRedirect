@@ -16,8 +16,12 @@ struct CloudEnabledHookInfo {
     void** vtable=nullptr;
     void* origAccountSlot=nullptr;
     void* origAppSlot=nullptr;
+    void* origSetAppSlot=nullptr;
+    void* origSetAccountSlot=nullptr;
     size_t accountSlotIndex=SIZE_MAX;
     size_t appSlotIndex=SIZE_MAX;
+    size_t setAppSlotIndex=SIZE_MAX;
+    size_t setAccountSlotIndex=SIZE_MAX;
 };
 uintptr_t FindSteamclient(size_t& outSize);
 void** FindTransportVtable(uintptr_t base,size_t size);
