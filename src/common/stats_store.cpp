@@ -2024,27 +2024,52 @@ void SeedApps(const std::vector<uint32_t>& appIds) {
         std::lock_guard<std::mutex> lock(g_mutex);
         ReconcileLocalConfig(g_cloudRoot, g_steamPath, false);
     }
-    // One network read for the whole account, not one per app. GetOrCreate then
-    // reads each app's entry from the cached blob (no further network).
+    // One network read for the whole account, not one per app.
     RefreshCloudBlobCache();
+
+    // macOS target-all mode does not have a finite configured namespace list.
+    // Build the seed set from every app already discovered locally or in the
+    // account-wide cloud blob, plus any explicit appIds supplied by a platform.
+    std::vector<uint32_t> seedIds;
+    {
+        std::lock_guard<std::mutex> lock(g_mutex);
+        std::unordered_set<uint32_t> seen;
+        seen.reserve(appIds.size() + g_cache.size() + g_cloudBlobByApp.size());
+
+        for (uint32_t appId : appIds) {
+            if (appId != 0 && seen.insert(appId).second)
+                seedIds.push_back(appId);
+        }
+        for (const auto& [appId, stats] : g_cache) {
+            (void)stats;
+            if (appId != 0 && seen.insert(appId).second)
+                seedIds.push_back(appId);
+        }
+        for (const auto& [appId, json] : g_cloudBlobByApp) {
+            (void)json;
+            if (appId != 0 && seen.insert(appId).second)
+                seedIds.push_back(appId);
+        }
+    }
+
     // Recover stats stranded under the old per-app cloud layout.
-    MigrateLegacyBlobs(appIds);
+    MigrateLegacyBlobs(seedIds);
     // Recover playtime from the very first 2.2.x per-app .bin format (local+cloud).
-    MigrateLegacyPlaytimeBins(appIds);
-    for (uint32_t appId : appIds) {
-        if (appId == 0) continue;
+    MigrateLegacyPlaytimeBins(seedIds);
+    for (uint32_t appId : seedIds) {
         GetOrCreate(appId);  // merges cached cloud blob + imports native + loads local
     }
+
     // Write .bin files for SLSsteam's NO_CONNECTION fallback.
     {
         std::lock_guard<std::mutex> lock(g_mutex);
-        for (uint32_t appId : appIds) {
-            if (appId == 0) continue;
+        for (uint32_t appId : seedIds) {
             auto it = g_cache.find(appId);
             if (it != g_cache.end())
                 ExportNativeStats(appId, it->second);
         }
     }
+
     // SeedApps also materializes imported native stats; flush the account blob
     // once so newly-seeded local stats reach the cloud.
     PushAccountBlobIfDirty();
@@ -2052,7 +2077,7 @@ void SeedApps(const std::vector<uint32_t>& appIds) {
     // Signal waiters (HandleGetUserStats blocks until seed completes).
     g_seedDone.store(true, std::memory_order_release);
     g_seedCv.notify_all();
-    LOG("[Stats] SeedApps complete (%zu app(s)); waiters released", appIds.size());
+    LOG("[Stats] SeedApps complete (%zu app(s)); waiters released", seedIds.size());
 }
 
 bool WaitForSeed(uint32_t timeoutMs) {
@@ -2409,6 +2434,25 @@ PlaytimeData GetPlaytime(uint32_t appId) {
 uint32_t GetDiskAccountId() {
     std::lock_guard<std::mutex> lock(g_mutex);
     return g_diskAccountId;
+}
+
+std::vector<uint32_t> GetKnownApps() {
+    std::lock_guard<std::mutex> lock(g_mutex);
+    std::vector<uint32_t> out;
+    std::unordered_set<uint32_t> seen;
+    seen.reserve(g_cache.size() + g_cloudBlobByApp.size());
+
+    for (const auto& [appId, stats] : g_cache) {
+        (void)stats;
+        if (appId != 0 && seen.insert(appId).second)
+            out.push_back(appId);
+    }
+    for (const auto& [appId, json] : g_cloudBlobByApp) {
+        (void)json;
+        if (appId != 0 && seen.insert(appId).second)
+            out.push_back(appId);
+    }
+    return out;
 }
 
 std::vector<uint32_t> GetTrackedApps() {
