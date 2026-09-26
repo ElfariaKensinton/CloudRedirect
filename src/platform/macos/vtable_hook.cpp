@@ -154,11 +154,16 @@ bool VtableHook::InstallHooks(void**vt,VtableInfo&i){
 bool VtableHook::InstallCloudEnabledHook(void**,CloudEnabledHookInfo&){return false;}
 void VtableHook::RemoveHooks(const VtableInfo&i){
     if(!i.vtable)return;
-    void** firstSlot = &i.vtable[7];
-    if(MakeWritable(firstSlot,2*sizeof(void*))){
+    void** firstSlot = i.typedInstalled ? &i.vtable[4] : &i.vtable[7];
+    const size_t slotCount = i.typedInstalled ? 5*sizeof(void*) : 2*sizeof(void*);
+    if(MakeWritable(firstSlot,slotCount)){
+        if(i.typedInstalled){
+            i.vtable[4]=i.origSlot4;
+            i.vtable[5]=i.origSlot5;
+        }
         i.vtable[7]=i.origSlot7;
         i.vtable[8]=i.origSlot8;
-        RestoreProtection(firstSlot,2*sizeof(void*),
+        RestoreProtection(firstSlot,slotCount,
                           (vm_prot_t)(i.originalProtection?i.originalProtection:VM_PROT_READ));
     }
 }
