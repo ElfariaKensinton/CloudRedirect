@@ -41,12 +41,14 @@ using TypedServerNotificationFn=bool(*)(void*,const char*,void*,void*);
 using CloudEnabledFn=bool(*)(void*,unsigned int);
 using ParseFromArrayFn=bool(*)(void*,const void*,int);
 using SerializeToArrayFn=bool(*)(const void*,void*,int);
+using SerializePartialToArrayFn=bool(*)(const void*,void*,int);
 using ByteSizeFn=int(*)(const void*);
 using SerializeWithCachedSizesToArrayFn=unsigned char*(*)(const void*,unsigned char*);
 using ByteSizeLongFn=size_t(*)(const void*);
 
 static std::atomic<ParseFromArrayFn> g_parseFromArray{nullptr};
 static std::atomic<SerializeToArrayFn> g_serializeToArray{nullptr};
+static std::atomic<SerializePartialToArrayFn> g_serializePartialToArray{nullptr};
 static std::atomic<SerializeWithCachedSizesToArrayFn> g_serializeWithCachedSizesToArray{nullptr};
 
 static std::atomic<RawServerMethodFn> g_origServerMethod{nullptr};
@@ -164,7 +166,9 @@ static void* FindLoadedImageSymbol(const char* wanted)
 static void ResolveProtobufHelpers()
 {
     if (g_parseFromArray.load(std::memory_order_acquire) &&
-        g_serializeToArray.load(std::memory_order_acquire))
+        (g_serializeToArray.load(std::memory_order_acquire) ||
+         g_serializePartialToArray.load(std::memory_order_acquire) ||
+         g_serializeWithCachedSizesToArray.load(std::memory_order_acquire)))
         return;
 
     // Steam's older protobuf ABI exports these MessageLite helpers from client.dylib.
@@ -177,16 +181,21 @@ static void ResolveProtobufHelpers()
 
     void* serialize = FindLoadedImageSymbol(
         "_ZNK6google8protobuf11MessageLite15SerializeToArrayEPvi");
+    void* serializePartial = FindLoadedImageSymbol(
+        "_ZNK6google8protobuf11MessageLite23SerializePartialToArrayEPvi");
     void* serializeCached = FindLoadedImageSymbol(
         "_ZNK6google8protobuf11MessageLite31SerializeWithCachedSizesToArrayEPh");
 
     g_parseFromArray.store(reinterpret_cast<ParseFromArrayFn>(parse), std::memory_order_release);
     g_serializeToArray.store(reinterpret_cast<SerializeToArrayFn>(serialize), std::memory_order_release);
+    g_serializePartialToArray.store(
+        reinterpret_cast<SerializePartialToArrayFn>(serializePartial),
+        std::memory_order_release);
     g_serializeWithCachedSizesToArray.store(
         reinterpret_cast<SerializeWithCachedSizesToArrayFn>(serializeCached),
         std::memory_order_release);
-    LOG("[Mac] protobuf typed helpers parse=%p serialize=%p cachedSerialize=%p",
-        parse, serialize, serializeCached);
+    LOG("[Mac] protobuf typed helpers parse=%p serialize=%p partial=%p cachedSerialize=%p",
+        parse, serialize, serializePartial, serializeCached);
 }
 
 static bool SerializeTypedMessage(const void* message, std::vector<uint8_t>& out)
@@ -195,10 +204,9 @@ static bool SerializeTypedMessage(const void* message, std::vector<uint8_t>& out
     ResolveProtobufHelpers();
 
     auto serialize = g_serializeToArray.load(std::memory_order_acquire);
+    auto serializePartial = g_serializePartialToArray.load(std::memory_order_acquire);
     auto cachedSerialize = g_serializeWithCachedSizesToArray.load(std::memory_order_acquire);
     auto* vt = *reinterpret_cast<void***>(const_cast<void*>(message));
-    if (!vt)
-        return false;
 
     if (serialize) {
         auto byteSize = reinterpret_cast<ByteSizeFn>(vt[9]);
@@ -213,12 +221,29 @@ static bool SerializeTypedMessage(const void* message, std::vector<uint8_t>& out
         return serialize(message, out.data(), size);
     }
 
-    // Newer protobuf builds expose SerializeToArray as a non-virtual helper
-    // that may be optimized away. Prefer the stable MessageLite helper
-    // SerializeWithCachedSizesToArray, after forcing ByteSizeLong()/ByteSize()
-    // through the message vtable. On older Steam protobuf ABIs slot 9 is
-    // ByteSize(); on newer ABIs it is ByteSizeLong(); both return the encoded
-    // size through the integer return register.
+    if (serializePartial) {
+        // SerializePartialToArray computes the message size itself and returns
+        // false when the supplied buffer is too small. Grow geometrically until
+        // serialization succeeds, without depending on a protobuf vtable slot.
+        constexpr size_t kInitialSize = 64 * 1024;
+        constexpr size_t kMaxSize = 64 * 1024 * 1024;
+        size_t size = kInitialSize;
+        out.resize(size);
+        while (true) {
+            if (serializePartial(message, out.data(), static_cast<int>(size))) {
+                return true;
+            }
+            if (size >= kMaxSize)
+                return false;
+            size *= 2;
+            if (size > kMaxSize)
+                size = kMaxSize;
+            out.resize(size);
+        }
+    }
+
+    // Older protobuf builds may only expose SerializeWithCachedSizesToArray.
+    // This fallback still uses the historical slot-9 size convention.
     if (cachedSerialize) {
         auto byteSizeLong = reinterpret_cast<ByteSizeLongFn>(vt[9]);
         if (!byteSizeLong)
