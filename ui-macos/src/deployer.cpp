@@ -72,36 +72,11 @@ static bool steamAllowsDyldInjection(const QString &exe, QString &reason)
     return true;
 }
 
-static bool readSlssteamStatus(bool &installed, bool &cloudBlocked)
-{
-    installed = false;
-    cloudBlocked = false;
-    const QStringList candidates = {
-        realHomePath() + "/.config/SLSsteam/config.yaml",
-        realHomePath() + "/Library/Application Support/Steam/SLSsteam/config.yaml",
-        realHomePath() + "/Library/Application Support/SLSsteam/config.yaml"
-    };
-
-    for (const QString &path : candidates) {
-        QFile f(path);
-        if (!f.open(QIODevice::ReadOnly | QIODevice::Text))
-            continue;
-        installed = true;
-        const QString text = QString::fromUtf8(f.readAll());
-        static const QRegularExpression disableRe(
-            "^\\s*DisableCloud\\s*:\\s*(yes|true|1)\\s*(?:#.*)?$",
-            QRegularExpression::CaseInsensitiveOption |
-            QRegularExpression::MultilineOption);
-        cloudBlocked = disableRe.match(text).hasMatch();
-        return true;
-    }
-    return false;
-}
 
 Deployer::Deployer(QObject *p):QObject(p){checkPrerequisites();}
-bool Deployer::slssteamInstalled()const{return m_slssteamInstalled;} bool Deployer::headcrabInstalled()const{return m_headcrabInstalled;}
+bool Deployer::headcrabInstalled()const{return m_headcrabInstalled;}
 bool Deployer::alreadyDeployed()const{return m_alreadyDeployed;} bool Deployer::updateAvailable()const{return m_updateAvailable;}
-bool Deployer::slsCloudBlocked()const{return m_slsCloudBlocked;} QString Deployer::statusMessage()const{return m_statusMessage;}
+QString Deployer::statusMessage()const{return m_statusMessage;}
 QString Deployer::bundledVersion()const{return m_bundledVersion;} QString Deployer::deployedVersion()const{return m_deployedVersion;}
 QString Deployer::steamPath()const{return m_steamPath;} bool Deployer::steamRunning()const{return m_steamRunning;}
 
@@ -116,7 +91,6 @@ bool Deployer::detectSteamRunning()const{
 }
 void Deployer::checkPrerequisites(){
     m_steamPath=steamAppBundle(); m_steamRunning=detectSteamRunning();
-    readSlssteamStatus(m_slssteamInstalled, m_slsCloudBlocked);
     const QString appDir=QCoreApplication::applicationDirPath();
     m_soDeployPath=crDataDir()+"/cloud_redirect.dylib"; m_cliDeployPath=crDataDir()+"/cloud_redirect_cli";
     const QStringList ds={QProcessEnvironment::systemEnvironment().value("CR_BUNDLED_DYLIB"),appDir+"/cloud_redirect.dylib",appDir+"/../Resources/cloud_redirect.dylib",appDir+"/../share/cloud_redirect/cloud_redirect.dylib"};
