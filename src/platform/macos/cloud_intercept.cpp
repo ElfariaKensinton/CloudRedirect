@@ -179,7 +179,7 @@ void InitMac(){
         g_steamPath.c_str(), g_accountId.load(), g_namespaceApps.size());
 }
 bool IsNamespaceApp(uint32_t id){
-    // macOS has no Linux/SLSsteam namespace dependency. Every real Steam
+    // macOS does not depend on an external namespace provider. Every real Steam
     // AppID is a CloudRedirect candidate; the set is only a known-app seed.
     return id != 0;
 }
