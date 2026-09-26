@@ -649,7 +649,7 @@ extern "C" bool hook_ServerNotificationTyped(
             }).detach();
         }
         LOG("[Mac] typed notification handled: %s app=%u",m,app);
-        return true;
+        return orig(t,m,message,options);
     }
 
     if(strcmp(m,CloudIntercept::RPC_CONFLICT)==0) {
@@ -666,6 +666,10 @@ extern "C" bool hook_ServerMethodRaw(
 {
  HookGuard guard;
  auto orig=g_origServerMethod.load(std::memory_order_acquire);
+ for(int i=0; !orig && i<1000; ++i){
+   std::this_thread::sleep_for(std::chrono::microseconds(100));
+   orig=g_origServerMethod.load(std::memory_order_acquire);
+ }
  if(!orig||g_shuttingDown.load(std::memory_order_acquire)||!m||!buf)
    return orig?orig(t,m,buf,len,response,options):false;
 
