@@ -231,12 +231,35 @@ void InitMac(){
     std::lock_guard<std::mutex> lk(g_mutex);
     g_namespaceApps.clear();
     g_steamPath=XdgHome()+"/Library/Application Support/Steam";
-    LoadApps(XdgConfigHome()+"/CloudRedirect/config.json");
-    // SLSsteam keeps its native config under ~/.config on macOS as well.
-    // Also retain the historical fallback paths used by older wrappers/installers.
-    LoadSlssteamAdditionalApps(XdgHome()+"/.config/SLSsteam/config.yaml");
-    LoadSlssteamAdditionalApps(XdgConfigHome()+"/SLSsteam/config.yaml");
-    LoadSlssteamAdditionalApps(g_steamPath + "/SLSsteam/config.yaml");
+    const std::string configRoot = XdgConfigHome();
+    const std::string home = XdgHome();
+
+    LoadApps(configRoot+"/CloudRedirect/config.json");
+
+    // SLSsteam's documented config is ~/.config/SLSsteam/config.yaml on Linux.
+    // macOS builds may instead follow the platform's Application Support layout,
+    // so probe all known layouts rather than silently assuming one of them.
+    const std::vector<std::string> slssteamConfigPaths = {
+        home + "/.config/SLSsteam/config.yaml",
+        configRoot + "/SLSsteam/config.yaml",
+        configRoot + "/Steam/SLSsteam/config.yaml",
+        g_steamPath + "/SLSsteam/config.yaml",
+        g_steamPath + "/config/SLSsteam/config.yaml",
+    };
+
+    std::unordered_set<std::string> seenConfigPaths;
+    for (const auto& path : slssteamConfigPaths) {
+        if (!seenConfigPaths.insert(path).second)
+            continue;
+        std::error_code pathEc;
+        const bool exists = std::filesystem::is_regular_file(path, pathEc);
+        LOG("[Mac] SLSsteam config probe: %s -> %s%s",
+            path.c_str(),
+            exists ? "FOUND" : "MISSING",
+            pathEc ? " (filesystem error)" : "");
+        if (exists)
+            LoadSlssteamAdditionalApps(path);
+    }
 
     const std::filesystem::path userdata = std::filesystem::path(g_steamPath) / "userdata";
     const uint32_t selectedAccount = ResolveActiveAccountId(g_steamPath);
