@@ -4,6 +4,8 @@
 namespace VtableHook {
 struct VtableInfo {
     void** vtable=nullptr;
+    void* origSlot4=nullptr;
+    void* origSlot5=nullptr;
     void* origSlot6=nullptr;
     void* origSlot7=nullptr;
     int originalProtection=0;
