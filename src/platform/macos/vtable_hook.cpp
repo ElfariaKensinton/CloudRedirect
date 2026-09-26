@@ -153,41 +153,83 @@ bool VtableHook::InstallHooks(void**vt,VtableInfo&i){
 
 bool VtableHook::InstallCloudEnabledHook(void**vt,CloudEnabledHookInfo& info){
     if(!vt) return false;
-    constexpr size_t kAccountSlot = 18; // IClientRemoteStorage::IsCloudEnabledForAccount
-    constexpr size_t kAppSlot = 19;     // IClientRemoteStorage::IsCloudEnabledForApp
-    if(!InReadableRanges((uintptr_t)vt,20*sizeof(void*)))
+    constexpr size_t kAccountSlot = 18; // IsCloudEnabledForAccount
+    constexpr size_t kAppSlot = 19;     // IsCloudEnabledForApp
+    constexpr size_t kSetAppSlot = 20;  // SetCloudEnabledForApp
+    constexpr size_t kSetAccountSlot = 61; // SetCloudEnabledForAccount
+
+    if(!InReadableRanges((uintptr_t)vt,62*sizeof(void*)))
         return false;
-    if(!InExecutableRanges((uintptr_t)vt[kAccountSlot],1) ||
-       !InExecutableRanges((uintptr_t)vt[kAppSlot],1))
-        return false;
+    for(size_t slot : {kAccountSlot,kAppSlot,kSetAppSlot,kSetAccountSlot}){
+        if(!InExecutableRanges((uintptr_t)vt[slot],1)){
+            Log::Error("[Mac] RemoteStorage slot %zu is not executable: %p",slot,vt[slot]);
+            return false;
+        }
+    }
 
     info.vtable=vt;
     info.origAccountSlot=vt[kAccountSlot];
     info.origAppSlot=vt[kAppSlot];
+    info.origSetAppSlot=vt[kSetAppSlot];
+    info.origSetAccountSlot=vt[kSetAccountSlot];
     info.accountSlotIndex=kAccountSlot;
     info.appSlotIndex=kAppSlot;
+    info.setAppSlotIndex=kSetAppSlot;
+    info.setAccountSlotIndex=kSetAccountSlot;
 
-    void** firstSlot=&vt[kAccountSlot];
-    if(!MakeWritable(firstSlot,2*sizeof(void*)))
-        return false;
-
+    void** first=&vt[kAccountSlot];
+    if(!MakeWritable(first,3*sizeof(void*)))return false;
     vt[kAccountSlot]=(void*)&hook_IsCloudEnabledForAccount;
     vt[kAppSlot]=(void*)&hook_IsCloudEnabledForApp;
-
-    const vm_prot_t originalProt=(vm_prot_t)(QueryProtection(firstSlot)?QueryProtection(firstSlot):VM_PROT_READ);
-    if(!RestoreProtection(firstSlot,2*sizeof(void*),originalProt)){
-        if(MakeWritable(firstSlot,2*sizeof(void*))){
+    vt[kSetAppSlot]=(void*)&hook_SetCloudEnabledForApp;
+    const vm_prot_t prot=(vm_prot_t)(QueryProtection(first)?QueryProtection(first):VM_PROT_READ);
+    if(!RestoreProtection(first,3*sizeof(void*),prot)){
+        if(MakeWritable(first,3*sizeof(void*))){
             vt[kAccountSlot]=info.origAccountSlot;
             vt[kAppSlot]=info.origAppSlot;
-            RestoreProtection(firstSlot,2*sizeof(void*),originalProt);
+            vt[kSetAppSlot]=info.origSetAppSlot;
+            RestoreProtection(first,3*sizeof(void*),prot);
         }
-        info = {};
+        info={};
+        return false;
+    }
+
+    void** setAccount=&vt[kSetAccountSlot];
+    if(!MakeWritable(setAccount,sizeof(void*))){
+        Log::Error("[Mac] unable to patch RemoteStorage SetCloudEnabledForAccount");
+        if(MakeWritable(first,3*sizeof(void*))){
+            vt[kAccountSlot]=info.origAccountSlot;
+            vt[kAppSlot]=info.origAppSlot;
+            vt[kSetAppSlot]=info.origSetAppSlot;
+            RestoreProtection(first,3*sizeof(void*),prot);
+        }
+        info={};
+        return false;
+    }
+    const vm_prot_t setProt=(vm_prot_t)(QueryProtection(setAccount)?QueryProtection(setAccount):VM_PROT_READ);
+    info.origSetAccountSlot=vt[kSetAccountSlot];
+    vt[kSetAccountSlot]=(void*)&hook_SetCloudEnabledForAccount;
+    if(!RestoreProtection(setAccount,sizeof(void*),setProt)){
+        if(MakeWritable(setAccount,sizeof(void*))){
+            vt[kSetAccountSlot]=info.origSetAccountSlot;
+            RestoreProtection(setAccount,sizeof(void*),setProt);
+        }
+        if(MakeWritable(first,3*sizeof(void*))){
+            vt[kAccountSlot]=info.origAccountSlot;
+            vt[kAppSlot]=info.origAppSlot;
+            vt[kSetAppSlot]=info.origSetAppSlot;
+            RestoreProtection(first,3*sizeof(void*),prot);
+        }
+        info={};
         return false;
     }
 
     CloudHooks::SetOriginalIsCloudEnabled(info.origAppSlot);
     CloudHooks::SetOriginalIsCloudEnabledAccount(info.origAccountSlot);
-    Log::Info("macOS remote storage Cloud-enabled hooks installed (slots %zu/%zu)",kAccountSlot,kAppSlot);
+    CloudHooks::SetOriginalSetCloudEnabledApp(info.origSetAppSlot);
+    CloudHooks::SetOriginalSetCloudEnabledAccount(info.origSetAccountSlot);
+    Log::Info("macOS RemoteStorage Cloud state forced ON (slots %zu/%zu/%zu/%zu)",
+              kAccountSlot,kAppSlot,kSetAppSlot,kSetAccountSlot);
     return true;
 }
 
@@ -210,10 +252,18 @@ void VtableHook::RemoveCloudEnabledHook(const CloudEnabledHookInfo& info){
     if(!info.vtable)return;
     constexpr size_t kAccountSlot=18;
     constexpr size_t kAppSlot=19;
-    void** firstSlot=&info.vtable[kAccountSlot];
-    if(MakeWritable(firstSlot,2*sizeof(void*))){
+    constexpr size_t kSetAppSlot=20;
+    constexpr size_t kSetAccountSlot=61;
+    void** first=&info.vtable[kAccountSlot];
+    if(MakeWritable(first,3*sizeof(void*))){
         info.vtable[kAccountSlot]=info.origAccountSlot;
         info.vtable[kAppSlot]=info.origAppSlot;
-        RestoreProtection(firstSlot,2*sizeof(void*),VM_PROT_READ);
+        info.vtable[kSetAppSlot]=info.origSetAppSlot;
+        RestoreProtection(first,3*sizeof(void*),VM_PROT_READ);
+    }
+    void** setAccount=&info.vtable[kSetAccountSlot];
+    if(MakeWritable(setAccount,sizeof(void*))){
+        info.vtable[kSetAccountSlot]=info.origSetAccountSlot;
+        RestoreProtection(setAccount,sizeof(void*),VM_PROT_READ);
     }
 }
