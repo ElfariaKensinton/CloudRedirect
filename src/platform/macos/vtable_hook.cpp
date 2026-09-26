@@ -188,6 +188,55 @@ bool VtableHook::InstallCloudEnabledHook(void**vt,CloudEnabledHookInfo& info){
         return false;
     }
 
+    constexpr size_t kSyncAppSlot = 68; // SynchronizeApp
+    constexpr size_t kIsSyncSlot = 69; // IsAppSyncInProgress
+    constexpr size_t kRunLaunchSlot = 70; // RunAutoCloudOnAppLaunch
+    constexpr size_t kRunExitSlot = 71; // RunAutoCloudOnAppExit
+    if(!InReadableRanges((uintptr_t)vt,72*sizeof(void*))) {
+        Log::Error("[Mac] RemoteStorage vtable is too short for sync lifecycle slots");
+        return false;
+    }
+    for(size_t slot : {kSyncAppSlot,kIsSyncSlot,kRunLaunchSlot,kRunExitSlot}){
+        if(!InExecutableRanges((uintptr_t)vt[slot],1)){
+            Log::Error("[Mac] RemoteStorage sync slot %zu is not executable: %p",slot,vt[slot]);
+            return false;
+        }
+    }
+    info.origSyncAppSlot=vt[kSyncAppSlot];
+    info.origIsSyncSlot=vt[kIsSyncSlot];
+    info.origRunLaunchSlot=vt[kRunLaunchSlot];
+    info.origRunExitSlot=vt[kRunExitSlot];
+    info.syncAppSlotIndex=kSyncAppSlot;
+    info.isSyncSlotIndex=kIsSyncSlot;
+    info.runLaunchSlotIndex=kRunLaunchSlot;
+    info.runExitSlotIndex=kRunExitSlot;
+
+    void** syncFirst=&vt[kSyncAppSlot];
+    if(!MakeWritable(syncFirst,4*sizeof(void*))){
+        Log::Error("[Mac] unable to patch RemoteStorage sync lifecycle slots");
+        return false;
+    }
+    vt[kSyncAppSlot]=(void*)&hook_SynchronizeApp;
+    vt[kIsSyncSlot]=(void*)&hook_IsAppSyncInProgress;
+    vt[kRunLaunchSlot]=(void*)&hook_RunAutoCloudOnAppLaunch;
+    vt[kRunExitSlot]=(void*)&hook_RunAutoCloudOnAppExit;
+    const vm_prot_t syncProt=(vm_prot_t)(QueryProtection(syncFirst)?QueryProtection(syncFirst):VM_PROT_READ);
+    if(!RestoreProtection(syncFirst,4*sizeof(void*),syncProt)){
+        if(MakeWritable(syncFirst,4*sizeof(void*))){
+            vt[kSyncAppSlot]=info.origSyncAppSlot;
+            vt[kIsSyncSlot]=info.origIsSyncSlot;
+            vt[kRunLaunchSlot]=info.origRunLaunchSlot;
+            vt[kRunExitSlot]=info.origRunExitSlot;
+            RestoreProtection(syncFirst,4*sizeof(void*),syncProt);
+        }
+        return false;
+    }
+
+    CloudHooks::SetOriginalRemoteStorageSync(
+        info.origSyncAppSlot,info.origIsSyncSlot,info.origRunLaunchSlot,info.origRunExitSlot);
+    Log::Info("macOS RemoteStorage sync lifecycle hooks installed (slots %zu-%zu)",
+              kSyncAppSlot,kRunExitSlot);
+
     void** setAccount=&vt[kSetAccountSlot];
     if(!MakeWritable(setAccount,sizeof(void*))){
         Log::Error("[Mac] unable to patch RemoteStorage SetCloudEnabledForAccount");
@@ -222,8 +271,8 @@ bool VtableHook::InstallCloudEnabledHook(void**vt,CloudEnabledHookInfo& info){
     CloudHooks::SetOriginalIsCloudEnabledAccount(info.origAccountSlot);
     CloudHooks::SetOriginalSetCloudEnabledApp(info.origSetAppSlot);
     CloudHooks::SetOriginalSetCloudEnabledAccount(info.origSetAccountSlot);
-    Log::Info("macOS RemoteStorage Cloud state forced ON (slots %zu/%zu/%zu/%zu)",
-              kAccountSlot,kAppSlot,kSetAppSlot,kSetAccountSlot);
+    Log::Info("macOS RemoteStorage Cloud state forced ON (slots %zu/%zu/%zu/%zu), sync observers %zu-%zu",
+              kAccountSlot,kAppSlot,kSetAppSlot,kSetAccountSlot,kSyncAppSlot,kRunExitSlot);
     return true;
 }
 
@@ -254,6 +303,14 @@ void VtableHook::RemoveCloudEnabledHook(const CloudEnabledHookInfo& info){
         info.vtable[kAppSlot]=info.origAppSlot;
         info.vtable[kSetAppSlot]=info.origSetAppSlot;
         RestoreProtection(first,3*sizeof(void*),VM_PROT_READ);
+    }
+    void** syncFirst=&info.vtable[68];
+    if(MakeWritable(syncFirst,4*sizeof(void*))){
+        info.vtable[68]=info.origSyncAppSlot;
+        info.vtable[69]=info.origIsSyncSlot;
+        info.vtable[70]=info.origRunLaunchSlot;
+        info.vtable[71]=info.origRunExitSlot;
+        RestoreProtection(syncFirst,4*sizeof(void*),VM_PROT_READ);
     }
     void** setAccount=&info.vtable[kSetAccountSlot];
     if(MakeWritable(setAccount,sizeof(void*))){
