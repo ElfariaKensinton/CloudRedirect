@@ -132,9 +132,9 @@ static void* FindLoadedImageSymbol(const char* wanted)
         const auto* symbols = reinterpret_cast<const nlist_64*>(linkeditBase + symtab->symoff);
         for (uint32_t j = 0; j < symtab->nsyms; ++j) {
             const auto& n = symbols[j];
-            if ((n.n_type & N_TYPE) == N_UNDF || n.n_strx >= symtab->strsize)
+            if ((n.n_type & N_TYPE) == N_UNDF || n.n_un.n_strx >= symtab->strsize)
                 continue;
-            if (strcmp(strtab + n.n_strx, wanted) == 0 && n.n_value != 0)
+            if (strcmp(strtab + n.n_un.n_strx, wanted) == 0 && n.n_value != 0)
                 return reinterpret_cast<void*>(static_cast<uintptr_t>(n.n_value) + slide);
         }
     }
