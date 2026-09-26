@@ -589,6 +589,17 @@ static void SetRawResponse(std::string& response,const PB::Writer& body){
  else response.assign(reinterpret_cast<const char*>(data.data()),data.size());
 }
 
+static void MergeRawLastPlayedResponse(std::string& response,const PB::Writer& body)
+{
+    const auto& data = body.Data();
+    if (data.empty()) return;
+
+    // StatsHandlers emits only the repeated games field (field 1). Protobuf
+    // messages are mergeable by concatenating serialized repeated fields, so
+    // preserve Steam's server response and append only our local games.
+    response.append(reinterpret_cast<const char*>(data.data()), data.size());
+}
+
 extern "C" bool hook_ServerMethodTyped(
     void*t,const char*m,void*request,void*response,void*options)
 {
@@ -670,9 +681,17 @@ extern "C" bool hook_ServerMethodRaw(
  if(isGetLastPlayed){
    if(!MetadataSync::syncPlaytime.load(std::memory_order_relaxed))
      return orig(t,m,buf,len,response,options);
+
+   // Keep Steam's real recently-played response and merge our locally tracked
+   // namespace games into it. Replacing the response would erase owned-game
+   // entries on macOS, unlike Linux.
+   const bool origResult = orig(t,m,buf,len,response,options);
+   if(!origResult)
+     return origResult;
+
    auto res=StatsHandlers::HandleGetLastPlayedTimes(fields);
-   SetRawResponse(response,res.body);
-   return true;
+   MergeRawLastPlayedResponse(response,res.body);
+   return origResult;
  }
 
  const uint32_t app=ExtractRequestAppId(m,fields);
@@ -689,6 +708,27 @@ extern "C" bool hook_ServerMethodRaw(
 
  if(HttpServer::GetPort()==0 && RequiresLocalHttp(m))
    return orig(t,m,buf,len,response,options);
+
+ // FileDownload is intentionally original-first: Steam performs its normal
+ // request/session bookkeeping, then we replace the returned body with our
+ // local cloud result, matching the Linux hook path.
+ const bool isFileDownload =
+     strcmp(m,CloudIntercept::RPC_FILE_DOWNLOAD)==0;
+ if(isFileDownload){
+     const bool origResult = orig(t,m,buf,len,response,options);
+     const uint32_t account=CloudIntercept::GetAccountId();
+     if(!account)
+         return origResult;
+
+     LocalStorage::InitApp(account,app);
+     LocalMetadataStore::InitApp(account,app);
+     auto fileRes=Dispatch(m,app,fields);
+     if(!fileRes.has_value() || fileRes->eresult!=CloudIntercept::kEResultOK)
+         return origResult;
+
+     SetRawResponse(response,fileRes->body);
+     return true;
+ }
 
  const uint32_t account=CloudIntercept::GetAccountId();
  if(!account)
@@ -710,6 +750,10 @@ extern "C" bool hook_ServerNotificationRaw(
 {
  HookGuard guard;
  auto orig=g_origServerNotification.load(std::memory_order_acquire);
+ for(int i=0; !orig && i<1000; ++i){
+     std::this_thread::sleep_for(std::chrono::microseconds(100));
+     orig=g_origServerNotification.load(std::memory_order_acquire);
+ }
  if(!orig||g_shuttingDown.load(std::memory_order_acquire)||!m||!buf)
    return orig?orig(t,m,buf,len,options):false;
 
@@ -738,7 +782,8 @@ extern "C" bool hook_ServerNotificationRaw(
        CloudStorage::ReleaseCloudSession(account,app,clientId);
      }).detach();
    }
-   return true;
+   // Preserve Steam's ExitSync handling (remotecache/session bookkeeping).
+   return orig(t,m,buf,len,options);
  }
 
  if(strcmp(m,CloudIntercept::RPC_CONFLICT)==0){
