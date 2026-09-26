@@ -151,7 +151,46 @@ bool VtableHook::InstallHooks(void**vt,VtableInfo&i){
     return true;
 }
 
-bool VtableHook::InstallCloudEnabledHook(void**,CloudEnabledHookInfo&){return false;}
+bool VtableHook::InstallCloudEnabledHook(void**vt,CloudEnabledHookInfo& info){
+    if(!vt) return false;
+    constexpr size_t kAccountSlot = 18; // IClientRemoteStorage::IsCloudEnabledForAccount
+    constexpr size_t kAppSlot = 19;     // IClientRemoteStorage::IsCloudEnabledForApp
+    if(!InReadableRanges((uintptr_t)vt,20*sizeof(void*)))
+        return false;
+    if(!InExecutableRanges((uintptr_t)vt[kAccountSlot],1) ||
+       !InExecutableRanges((uintptr_t)vt[kAppSlot],1))
+        return false;
+
+    info.vtable=vt;
+    info.origAccountSlot=vt[kAccountSlot];
+    info.origAppSlot=vt[kAppSlot];
+    info.accountSlotIndex=kAccountSlot;
+    info.appSlotIndex=kAppSlot;
+
+    void** firstSlot=&vt[kAccountSlot];
+    if(!MakeWritable(firstSlot,2*sizeof(void*)))
+        return false;
+
+    vt[kAccountSlot]=(void*)&hook_IsCloudEnabledForAccount;
+    vt[kAppSlot]=(void*)&hook_IsCloudEnabledForApp;
+
+    const vm_prot_t originalProt=(vm_prot_t)(QueryProtection(firstSlot)?QueryProtection(firstSlot):VM_PROT_READ);
+    if(!RestoreProtection(firstSlot,2*sizeof(void*),originalProt)){
+        if(MakeWritable(firstSlot,2*sizeof(void*))){
+            vt[kAccountSlot]=info.origAccountSlot;
+            vt[kAppSlot]=info.origAppSlot;
+            RestoreProtection(firstSlot,2*sizeof(void*),originalProt);
+        }
+        info = {};
+        return false;
+    }
+
+    CloudHooks::SetOriginalIsCloudEnabled(info.origAppSlot);
+    CloudHooks::SetOriginalIsCloudEnabledAccount(info.origAccountSlot);
+    Log::Info("macOS remote storage Cloud-enabled hooks installed (slots %zu/%zu)",kAccountSlot,kAppSlot);
+    return true;
+}
+
 void VtableHook::RemoveHooks(const VtableInfo&i){
     if(!i.vtable)return;
     void** firstSlot = i.typedInstalled ? &i.vtable[4] : &i.vtable[7];
@@ -167,4 +206,14 @@ void VtableHook::RemoveHooks(const VtableInfo&i){
                           (vm_prot_t)(i.originalProtection?i.originalProtection:VM_PROT_READ));
     }
 }
-void VtableHook::RemoveCloudEnabledHook(const CloudEnabledHookInfo&){}
+void VtableHook::RemoveCloudEnabledHook(const CloudEnabledHookInfo& info){
+    if(!info.vtable)return;
+    constexpr size_t kAccountSlot=18;
+    constexpr size_t kAppSlot=19;
+    void** firstSlot=&info.vtable[kAccountSlot];
+    if(MakeWritable(firstSlot,2*sizeof(void*))){
+        info.vtable[kAccountSlot]=info.origAccountSlot;
+        info.vtable[kAppSlot]=info.origAppSlot;
+        RestoreProtection(firstSlot,2*sizeof(void*),VM_PROT_READ);
+    }
+}
