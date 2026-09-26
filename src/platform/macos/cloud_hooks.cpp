@@ -55,8 +55,8 @@ static std::atomic<bool> g_initialized{false},g_shuttingDown{false};
 static std::atomic<int> g_hookRefCount{0};
 static std::once_flag g_initOnce;
 static std::atomic<bool> g_statsSyncEnabled{false};
-static std::thread g_seedThread;
-static std::thread g_cloudPollerThread;
+static std::unique_ptr<std::thread> g_seedThread;
+static std::unique_ptr<std::thread> g_cloudPollerThread;
 static std::mutex g_seedExitMtx, g_pollerExitMtx;
 static std::condition_variable g_seedExitCv, g_pollerExitCv;
 static std::atomic<bool> g_seedExited{false};
@@ -491,7 +491,7 @@ static void EnsureInitialized(){
      if(MetadataSync::syncAchievements.load(std::memory_order_relaxed) ||
         MetadataSync::syncPlaytime.load(std::memory_order_relaxed)){
        g_seedExited.store(false,std::memory_order_release);
-       g_seedThread=std::thread([]{
+       g_seedThread=std::make_unique<std::thread>([]{
          if(!g_shuttingDown.load(std::memory_order_acquire))
            StatsStore::SeedApps(CloudIntercept::GetNamespaceApps());
          g_seedExited.store(true,std::memory_order_release);
@@ -499,7 +499,7 @@ static void EnsureInitialized(){
        });
 
        g_pollerExited.store(false,std::memory_order_release);
-       g_cloudPollerThread=std::thread([]{
+       g_cloudPollerThread=std::make_unique<std::thread>([]{
          while(!g_shuttingDown.load(std::memory_order_acquire)){
            for(int i=0;i<60 && !g_shuttingDown.load(std::memory_order_acquire);++i)
              std::this_thread::sleep_for(std::chrono::seconds(1));
@@ -549,17 +549,20 @@ void BeginShutdown(){
  g_shuttingDown.store(true,std::memory_order_release);
  HttpServer::Stop();
 
- if(g_seedThread.joinable()){
+ LOG("[Mac] BeginShutdown: stopping stats workers");
+ if(g_seedThread && g_seedThread->joinable()){
    std::unique_lock<std::mutex> lk(g_seedExitMtx);
    g_seedExitCv.wait(lk,[] { return g_seedExited.load(std::memory_order_acquire); });
    lk.unlock();
-   g_seedThread.join();
+   g_seedThread->join();
+   g_seedThread.reset();
  }
- if(g_cloudPollerThread.joinable()){
+ if(g_cloudPollerThread && g_cloudPollerThread->joinable()){
    std::unique_lock<std::mutex> lk(g_pollerExitMtx);
    g_pollerExitCv.wait(lk,[] { return g_pollerExited.load(std::memory_order_acquire); });
    lk.unlock();
-   g_cloudPollerThread.join();
+   g_cloudPollerThread->join();
+   g_cloudPollerThread.reset();
  }
  if(g_statsSyncEnabled.load(std::memory_order_acquire)) {
    if(MetadataSync::syncPlaytime.load(std::memory_order_relaxed))
@@ -571,6 +574,7 @@ void BeginShutdown(){
    std::this_thread::sleep_for(std::chrono::milliseconds(1));
 
  CloudStorage::Shutdown();
+ LOG("[Mac] BeginShutdown: complete");
 }
 }
 
