@@ -241,7 +241,7 @@ static void EnsureInitialized(){
            for(int i=0;i<60 && !g_shuttingDown.load(std::memory_order_acquire);++i)
              std::this_thread::sleep_for(std::chrono::seconds(1));
            if(g_shuttingDown.load(std::memory_order_acquire))break;
-           const auto apps=CloudIntercept::GetNamespaceApps();
+           const auto apps=StatsStore::GetKnownApps();
            if(MetadataSync::syncPlaytime.load(std::memory_order_relaxed)) {
              StatsStore::RefreshLocalPlaytime();
              auto changed=StatsStore::RefreshFromCloud(apps);
