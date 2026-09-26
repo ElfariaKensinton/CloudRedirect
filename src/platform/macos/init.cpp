@@ -64,7 +64,8 @@ __attribute__((constructor))
 static void CR_OnLoad()
 {
     Log::Init();
-    LOG("[Mac] dylib constructor process=%s", getprogname() ? getprogname() : "<unknown>");
+    LOG("[Mac] dylib constructor pid=%d process=%s", getpid(),
+        getprogname() ? getprogname() : "<unknown>");
     // DYLD_INSERT_LIBRARIES may contain multiple injected libraries. CloudRedirect
     // only initializes its Steam hooks; non-Steam processes must be left completely
     // untouched so the rest of the injection chain remains intact.
@@ -92,6 +93,7 @@ static void CR_OnUnload()
     if (!g_steamProcess.load(std::memory_order_acquire))
         return;
 
+    LOG("[Mac] dylib destructor pid=%d: begin teardown", getpid());
     g_unloading.store(true, std::memory_order_release);
     if (g_threadStarted.load(std::memory_order_acquire))
         pthread_join(g_initThread, nullptr);
@@ -100,6 +102,7 @@ static void CR_OnUnload()
         CloudHooks::BeginShutdown();
     if (g_hooksInstalled.exchange(false, std::memory_order_acq_rel))
         VtableHook::RemoveHooks(g_transport);
+    LOG("[Mac] dylib destructor pid=%d: teardown complete", getpid());
 }
 
 extern "C" const char* CR_GetVersion()
