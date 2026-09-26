@@ -351,11 +351,9 @@ void Backend::loadConfig()
         if (ok && appId > 0 && !kHiddenAppIds.contains(appId))
             m_namespaceApps.insert(appId);
     }
-    for (const auto &app : m_apps) {
-        if (app.isLocal && app.appId > 0 && !kHiddenAppIds.contains(app.appId))
-            m_namespaceApps.insert(app.appId);
-    }
-
+    // Local storage entries are not target declarations. Keep them visible in
+    // the Apps page, but only explicit namespace_apps entries (or SLSsteam
+    // AdditionalApps consumed by the dylib) define interception scope.
     fprintf(stderr, "[Backend] loadConfig: provider=%s syncFolder=%s notifications=%s targetApps=%d\n",
         m_providerName.toUtf8().constData(), m_syncFolderPath.toUtf8().constData(),
         m_notificationsEnabled ? "true" : "false", m_namespaceApps.size());
