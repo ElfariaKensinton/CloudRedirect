@@ -61,7 +61,7 @@ struct HookGuard {
  ~HookGuard() {
    if (active) g_hookRefCount.fetch_sub(1, std::memory_order_release);
  }
-}
+};
 
 static bool RequiresLocalHttp(const char* method)
 {
