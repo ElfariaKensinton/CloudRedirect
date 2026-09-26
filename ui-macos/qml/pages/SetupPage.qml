@@ -124,38 +124,6 @@ Page {
                 opacity: 0.7
             }
 
-            // SLSsteam status
-            Frame {
-                Layout.fillWidth: true
-                Layout.leftMargin: 20
-                Layout.rightMargin: 20
-
-                ColumnLayout {
-                    width: parent.width
-                    spacing: 4
-
-                    Label {
-                        text: "Target app configuration"
-                        font.bold: true
-                    }
-                    Label {
-                        text: deployer && deployer.slssteamInstalled ? "SLSsteam AdditionalApps configuration found" : "No AdditionalApps configuration found"
-                        opacity: 0.7
-                    }
-                    Label {
-                        visible: deployer && deployer.slssteamInstalled && deployer.slsCloudBlocked
-                        text: "Cloud Saving is disabled in your SLSsteam config!"
-                        color: "#e74c3c"
-                    }
-                    Label {
-                        visible: deployer && deployer.slssteamInstalled && deployer.slsCloudBlocked
-                        text: "Set DisableCloud: no in ~/.config/SLSsteam/config.yaml"
-                        font.family: "monospace"
-                        opacity: 0.6
-                    }
-                }
-            }
-
             // Target app IDs
             Frame {
                 Layout.fillWidth: true
@@ -166,9 +134,9 @@ Page {
                     width: parent.width
                     spacing: 6
 
-                    Label { text: "CloudRedirect target apps"; font.bold: true }
+                    Label { text: "Preseeded AppIDs (optional)"; font.bold: true }
                     Label {
-                        text: "Add AppIDs that CloudRedirect should redirect. SLSsteam is not required when using this list."
+                        text: "Optional AppIDs to preseed local/cloud stats. macOS CloudRedirect otherwise handles all non-zero Steam AppIDs."
                         wrapMode: Text.WordWrap
                         Layout.fillWidth: true
                         opacity: 0.7
