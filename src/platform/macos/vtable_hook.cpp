@@ -177,6 +177,14 @@ bool VtableHook::InstallCloudEnabledHook(void**vt,CloudEnabledHookInfo& info){
     vt[kAppSlot]=(void*)&hook_IsCloudEnabledForApp;
     vt[kSetAppSlot]=(void*)&hook_SetCloudEnabledForApp;
     const vm_prot_t prot=(vm_prot_t)(QueryProtection(first)?QueryProtection(first):VM_PROT_READ);
+    auto rollbackCloudState=[&](){
+        if(MakeWritable(first,3*sizeof(void*))){
+            vt[kAccountSlot]=info.origAccountSlot;
+            vt[kAppSlot]=info.origAppSlot;
+            vt[kSetAppSlot]=info.origSetAppSlot;
+            RestoreProtection(first,3*sizeof(void*),prot);
+        }
+    };
     if(!RestoreProtection(first,3*sizeof(void*),prot)){
         if(MakeWritable(first,3*sizeof(void*))){
             vt[kAccountSlot]=info.origAccountSlot;
@@ -194,11 +202,15 @@ bool VtableHook::InstallCloudEnabledHook(void**vt,CloudEnabledHookInfo& info){
     constexpr size_t kRunExitSlot = 71; // RunAutoCloudOnAppExit
     if(!InReadableRanges((uintptr_t)vt,72*sizeof(void*))) {
         Log::Error("[Mac] RemoteStorage vtable is too short for sync lifecycle slots");
+        rollbackCloudState();
+        info={};
         return false;
     }
     for(size_t slot : {kSyncAppSlot,kIsSyncSlot,kRunLaunchSlot,kRunExitSlot}){
         if(!InExecutableRanges((uintptr_t)vt[slot],1)){
             Log::Error("[Mac] RemoteStorage sync slot %zu is not executable: %p",slot,vt[slot]);
+            rollbackCloudState();
+            info={};
             return false;
         }
     }
@@ -214,6 +226,8 @@ bool VtableHook::InstallCloudEnabledHook(void**vt,CloudEnabledHookInfo& info){
     void** syncFirst=&vt[kSyncAppSlot];
     if(!MakeWritable(syncFirst,4*sizeof(void*))){
         Log::Error("[Mac] unable to patch RemoteStorage sync lifecycle slots");
+        rollbackCloudState();
+        info={};
         return false;
     }
     vt[kSyncAppSlot]=(void*)&hook_SynchronizeApp;
@@ -221,6 +235,15 @@ bool VtableHook::InstallCloudEnabledHook(void**vt,CloudEnabledHookInfo& info){
     vt[kRunLaunchSlot]=(void*)&hook_RunAutoCloudOnAppLaunch;
     vt[kRunExitSlot]=(void*)&hook_RunAutoCloudOnAppExit;
     const vm_prot_t syncProt=(vm_prot_t)(QueryProtection(syncFirst)?QueryProtection(syncFirst):VM_PROT_READ);
+    auto rollbackSyncState=[&](){
+        if(MakeWritable(syncFirst,4*sizeof(void*))){
+            vt[kSyncAppSlot]=info.origSyncAppSlot;
+            vt[kIsSyncSlot]=info.origIsSyncSlot;
+            vt[kRunLaunchSlot]=info.origRunLaunchSlot;
+            vt[kRunExitSlot]=info.origRunExitSlot;
+            RestoreProtection(syncFirst,4*sizeof(void*),syncProt);
+        }
+    };
     if(!RestoreProtection(syncFirst,4*sizeof(void*),syncProt)){
         if(MakeWritable(syncFirst,4*sizeof(void*))){
             vt[kSyncAppSlot]=info.origSyncAppSlot;
@@ -229,6 +252,8 @@ bool VtableHook::InstallCloudEnabledHook(void**vt,CloudEnabledHookInfo& info){
             vt[kRunExitSlot]=info.origRunExitSlot;
             RestoreProtection(syncFirst,4*sizeof(void*),syncProt);
         }
+        rollbackCloudState();
+        info={};
         return false;
     }
 
@@ -240,6 +265,7 @@ bool VtableHook::InstallCloudEnabledHook(void**vt,CloudEnabledHookInfo& info){
     void** setAccount=&vt[kSetAccountSlot];
     if(!MakeWritable(setAccount,sizeof(void*))){
         Log::Error("[Mac] unable to patch RemoteStorage SetCloudEnabledForAccount");
+        rollbackSyncState();
         if(MakeWritable(first,3*sizeof(void*))){
             vt[kAccountSlot]=info.origAccountSlot;
             vt[kAppSlot]=info.origAppSlot;
@@ -257,12 +283,8 @@ bool VtableHook::InstallCloudEnabledHook(void**vt,CloudEnabledHookInfo& info){
             vt[kSetAccountSlot]=info.origSetAccountSlot;
             RestoreProtection(setAccount,sizeof(void*),setProt);
         }
-        if(MakeWritable(first,3*sizeof(void*))){
-            vt[kAccountSlot]=info.origAccountSlot;
-            vt[kAppSlot]=info.origAppSlot;
-            vt[kSetAppSlot]=info.origSetAppSlot;
-            RestoreProtection(first,3*sizeof(void*),prot);
-        }
+        rollbackSyncState();
+        rollbackCloudState();
         info={};
         return false;
     }
