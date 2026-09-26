@@ -1802,25 +1802,22 @@ void ResetStats(uint32_t appId) {
 
 // Migrate legacy per-app blobs into the consolidated account blob.
 static void MigrateLegacyBlobs(const std::vector<uint32_t>& appIds) {
-    CloudPullLegacyFn pullLegacy;
-    std::vector<uint32_t> missing;
+    (void)appIds;
+    uint32_t accountId = 0;
     {
         std::lock_guard<std::mutex> lock(g_mutex);
-        if (!g_cloudPullLegacy) return;
-        pullLegacy = g_cloudPullLegacy;
-        for (uint32_t appId : appIds) {
-            if (appId == 0) continue;
-            if (g_cloudBlobByApp.find(appId) == g_cloudBlobByApp.end())
-                missing.push_back(appId);
-        }
+        if (g_accountIdProvider) accountId = g_accountIdProvider();
     }
-    for (uint32_t appId : missing) {
-        std::string legacy = pullLegacy(appId);   // network, off-lock
-        if (legacy.empty()) continue;
+    if (accountId == 0) return;
+
+    std::unordered_map<uint32_t, std::string> legacyByApp;
+    if (!CloudStorage::DownloadLegacyStatsBlobs(accountId, legacyByApp)) return;
+
+    for (const auto& [appId, legacy] : legacyByApp) {
+        if (appId == 0 || legacy.empty()) continue;
         AppStats parsed;
         if (!ParseAppStatsJson(legacy, parsed)) continue;
         std::lock_guard<std::mutex> lock(g_mutex);
-        // Re-check: another path may have populated it while we were off-lock.
         if (g_cloudBlobByApp.find(appId) != g_cloudBlobByApp.end()) continue;
         g_cloudBlobByApp[appId] = legacy;
         g_accountBlobDirty = true;
@@ -1938,98 +1935,21 @@ static void MigrateLegacyPlaytimeBins(const std::vector<uint32_t>& appIds) {
     if (!pass1Done)
         std::ofstream(donePath.string(), std::ios::trunc) << "1";
 
-    // Pass 2: cloud copies (the .bin may exist only in the cloud). Per-app guarded:
-    // skip apps already recovered, retry the rest. Max-merge prefers higher local/cloud.
-    CloudPullLegacyPlaytimeFn pullPt;
-    {
-        std::lock_guard<std::mutex> lock(g_mutex);
-        pullPt = g_cloudPullLegacyPlaytime;
-    }
-    if (!pullPt) return;
-    ec.clear();   // ec was threaded through pass-1 fs calls; only trust it fresh
-    fs::create_directories(cloudMarkerDir, ec);
-    if (ec) {
-        // Can't persist per-app counters -> a sync network pull would run every
-        // launch with no way to give up. Bail rather than spin.
-        LOG("[Stats] legacy pt cloud marker dir unavailable (%s); skipping cloud pass",
-            ec.message().c_str());
-        return;
-    }
-    // Marker contents: "done" once recovered/given up; a number = empty-pull attempts
-    // so far (retry next launch). After kMaxTries empties we stop -- the format is
-    // frozen, so a missing bin won't appear.
-    static const int kMaxTries = 8;
-    for (uint32_t appId : appIds) {
-        if (appId == 0) continue;
-        fs::path mk = cloudMarkerDir / std::to_string(appId);
-        int tries = 0;
-        {
-            std::ifstream mf(mk);
-            if (mf.good()) {
-                std::string s((std::istreambuf_iterator<char>(mf)),
-                              std::istreambuf_iterator<char>());
-                if (s == "done") continue;          // recovered or exhausted
-                try { tries = std::stoi(s); } catch (...) {}
-            }
-        }
-        // The consolidated account blob is the current format. Legacy cloud
-        // playtime probing is only needed when neither the local app JSON nor the
-        // consolidated cloud entry contains playtime. This avoids a network GET
-        // for every known app on every first startup while still preserving true
-        // first-format migrations.
-        bool needsLegacyProbe = true;
-        {
-            std::lock_guard<std::mutex> lock(g_mutex);
-            auto cloudIt = g_cloudBlobByApp.find(appId);
-            if (cloudIt != g_cloudBlobByApp.end() && !cloudIt->second.empty()) {
-                AppStats cloudStats;
-                if (ParseAppStatsJson(cloudIt->second, cloudStats) &&
-                    (cloudStats.playtime.minutesForever != 0 ||
-                     cloudStats.playtime.minutesLastTwoWeeks != 0 ||
-                     cloudStats.playtime.lastPlayedTime != 0 ||
-                     !cloudStats.playtime.perDevice.empty())) {
-                    needsLegacyProbe = false;
-                }
-            }
-            if (needsLegacyProbe) {
-                std::string localPath = StatsPath(appId);
-                if (!localPath.empty()) {
-                    std::ifstream lf(localPath);
-                    if (lf.good()) {
-                        std::string localJson((std::istreambuf_iterator<char>(lf)),
-                                              std::istreambuf_iterator<char>());
-                        AppStats localStats;
-                        if (ParseAppStatsJson(localJson, localStats) &&
-                            (localStats.playtime.minutesForever != 0 ||
-                             localStats.playtime.minutesLastTwoWeeks != 0 ||
-                             localStats.playtime.lastPlayedTime != 0 ||
-                             !localStats.playtime.perDevice.empty())) {
-                            needsLegacyProbe = false;
-                        }
-                    }
-                }
-            }
-        }
-
-        if (!needsLegacyProbe) {
-            std::ofstream(mk.string(), std::ios::trunc) << "done";
-            continue;
-        }
-
-        std::string json = pullPt(appId);          // network, off-lock
-        if (json.empty()) {
-            if (++tries >= kMaxTries)
-                std::ofstream(mk.string(), std::ios::trunc) << "done";  // give up
-            else
-                std::ofstream(mk.string(), std::ios::trunc) << tries;   // retry later
-            continue;
-        }
+    // Pass 2: cloud copies. Enumerate the account once and download only legacy
+    // .bin files that actually exist; do not probe every seeded AppID.
+    uint32_t currentAcct = g_accountIdProvider ? g_accountIdProvider() : 0;
+    if (currentAcct == 0) return;
+    std::unordered_map<uint32_t, std::string> legacyByApp;
+    if (!CloudStorage::DownloadLegacyPlaytimeBlobs(currentAcct, legacyByApp)) return;
+    for (const auto& [appId, json] : legacyByApp) {
+        if (appId == 0 || json.empty()) continue;
         uint32_t mins = 0, lastPlayed = 0, twoWks = 0;
-        if (ParseLegacyPlaytimeBin(json, mins, lastPlayed, twoWks))
+        if (ParseLegacyPlaytimeBin(json, mins, lastPlayed, twoWks)) {
             ApplyLegacyPlaytime(appId, mins, lastPlayed, twoWks);
-        std::ofstream(mk.string(), std::ios::trunc) << "done";          // recovered
-        LOG("[Stats] Cloud legacy playtime recovered app %u (%u min)", appId, mins);
+            LOG("[Stats] Cloud legacy playtime recovered app %u (%u min)", appId, mins);
+        }
     }
+    fs::create_directories(cloudMarkerDir, ec);
 }
 
 void RefreshLocalPlaytime() {
