@@ -29,6 +29,7 @@
 #include <chrono>
 #include <unordered_map>
 #include <cstdlib>
+#include <cstdio>
 #include <dlfcn.h>
 #include <mach-o/dyld.h>
 #include <mach-o/loader.h>
