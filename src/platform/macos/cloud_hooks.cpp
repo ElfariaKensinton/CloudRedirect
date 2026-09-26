@@ -209,6 +209,40 @@ static bool SerializeTypedMessage(const void* message, std::vector<uint8_t>& out
     return serialize(message, out.data(), size);
 }
 
+namespace CloudHooks {
+bool TypedHooksAvailable()
+{
+    ResolveProtobufHelpers();
+    const auto parse = g_parseFromArray.load(std::memory_order_acquire);
+    const auto serialize = g_serializeToArray.load(std::memory_order_acquire);
+    if (!parse || !serialize)
+        return false;
+
+    Dl_info parseInfo{};
+    Dl_info serializeInfo{};
+    if (!dladdr(reinterpret_cast<void*>(parse), &parseInfo) ||
+        !dladdr(reinterpret_cast<void*>(serialize), &serializeInfo) ||
+        !parseInfo.dli_fbase || !serializeInfo.dli_fbase ||
+        parseInfo.dli_fbase != serializeInfo.dli_fbase) {
+        LOG("[Mac] typed protobuf helpers come from different images; disabling typed transport");
+        return false;
+    }
+
+    const char* image = parseInfo.dli_fname ? parseInfo.dli_fname : "";
+    const bool steamImage = strstr(image, "client.dylib") ||
+                            strstr(image, "steamclient") ||
+                            strstr(image, "SteamClient") ||
+                            strstr(image, "steam_osx");
+    if (!steamImage) {
+        LOG("[Mac] typed protobuf helpers resolved from non-Steam image %s; disabling typed transport",
+            image);
+        return false;
+    }
+    return true;
+}
+
+}
+
 static bool ParseTypedMessage(void* message, const std::vector<uint8_t>& body)
 {
     if (!message) return false;
