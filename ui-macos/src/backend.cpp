@@ -22,6 +22,7 @@
 #include <QAtomicInt>
 #include <QThread>
 #include <QVariantMap>
+#include <algorithm>
 #include <atomic>
 #include <unistd.h>
 #include <fcntl.h>
@@ -341,9 +342,23 @@ void Backend::loadConfig()
     m_statsSyncEnabled = obj.value("stats_sync_enabled").toBool(true);
     m_syncAchievements = obj.value("sync_achievements").toBool(false);
     m_syncPlaytime = obj.value("sync_playtime").toBool(false);
-    fprintf(stderr, "[Backend] loadConfig: provider=%s syncFolder=%s notifications=%s\n",
+
+    m_namespaceApps.clear();
+    const QJsonArray namespaceApps = obj.value("namespace_apps").toArray();
+    for (const auto &value : namespaceApps) {
+        bool ok = false;
+        const uint appId = value.toVariant().toUInt(&ok);
+        if (ok && appId > 0 && !kHiddenAppIds.contains(appId))
+            m_namespaceApps.insert(appId);
+    }
+    for (const auto &app : m_apps) {
+        if (app.isLocal && app.appId > 0 && !kHiddenAppIds.contains(app.appId))
+            m_namespaceApps.insert(app.appId);
+    }
+
+    fprintf(stderr, "[Backend] loadConfig: provider=%s syncFolder=%s notifications=%s targetApps=%d\n",
         m_providerName.toUtf8().constData(), m_syncFolderPath.toUtf8().constData(),
-        m_notificationsEnabled ? "true" : "false");
+        m_notificationsEnabled ? "true" : "false", m_namespaceApps.size());
 
     m_providerAuthenticated = false;
     if (m_providerName == "gdrive" || m_providerName == "onedrive") {
@@ -417,6 +432,13 @@ void Backend::saveConfig()
     obj["sync_achievements"] = m_syncAchievements;
     obj["sync_playtime"] = m_syncPlaytime;
 
+    QJsonArray namespaceApps;
+    QList<uint32_t> sortedApps = m_namespaceApps.values();
+    std::sort(sortedApps.begin(), sortedApps.end());
+    for (uint appId : sortedApps)
+        namespaceApps.append(static_cast<qint64>(appId));
+    obj["namespace_apps"] = namespaceApps;
+
     // Atomic write: write to temp, then rename
     static QAtomicInt configWriteSeq{0};
     QString tempPath = configPath + QString(".tmp.%1.%2")
@@ -439,6 +461,36 @@ void Backend::saveConfig()
     }
 
     emit settingsChanged();
+}
+
+QVariantList Backend::getTargetAppIds() const
+{
+    QVariantList result;
+    QList<uint32_t> sortedApps = m_namespaceApps.values();
+    std::sort(sortedApps.begin(), sortedApps.end());
+    for (uint appId : sortedApps)
+        result.append(static_cast<qulonglong>(appId));
+    return result;
+}
+
+bool Backend::addTargetApp(uint appId)
+{
+    if (appId == 0 || kHiddenAppIds.contains(appId)) return false;
+    if (m_namespaceApps.contains(appId)) return true;
+    m_namespaceApps.insert(appId);
+    saveConfig();
+    emit targetAppsChanged();
+    emit appsChanged();
+    return true;
+}
+
+bool Backend::removeTargetApp(uint appId)
+{
+    if (!m_namespaceApps.remove(appId)) return false;
+    saveConfig();
+    emit targetAppsChanged();
+    emit appsChanged();
+    return true;
 }
 
 int Backend::managedAppCount() const {

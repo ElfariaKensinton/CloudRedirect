@@ -28,6 +28,7 @@ class Backend : public QObject
     Q_PROPERTY(bool syncPlaytime READ syncPlaytime WRITE setSyncPlaytime NOTIFY settingsChanged)
     Q_PROPERTY(QString accountId READ accountId NOTIFY statusChanged)
     Q_PROPERTY(QString accountName READ accountName NOTIFY statusChanged)
+    Q_PROPERTY(QVariantList targetAppIds READ getTargetAppIds NOTIFY targetAppsChanged)
     Q_PROPERTY(QString version READ version CONSTANT)
 
 public:
@@ -60,6 +61,9 @@ public:
 
     Q_INVOKABLE QVariantList getManagedApps();
     Q_INVOKABLE QVariantList getAppDetails();
+    Q_INVOKABLE QVariantList getTargetAppIds() const;
+    Q_INVOKABLE bool addTargetApp(uint appId);
+    Q_INVOKABLE bool removeTargetApp(uint appId);
     Q_INVOKABLE void deleteAppData(uint appId);
     Q_INVOKABLE void resolveAppNames();
     Q_INVOKABLE void refreshStatus();
@@ -123,6 +127,7 @@ public:
 signals:
     void statusChanged();
     void appsChanged();
+    void targetAppsChanged();
     void settingsChanged();
     void appNamesResolved();
     void remoteAppsFetched();
@@ -198,6 +203,7 @@ private:
     QList<uint32_t> m_pendingPackages;  // package IDs to resolve
     QMap<uint32_t, QString> m_nameCache;
     QMap<uint32_t, QString> m_headerCache;
+    QSet<uint32_t> m_namespaceApps;
 
     QProcess *m_scanProc = nullptr;       // in-flight `scan-all`
     QProcess *m_migrateProc = nullptr;    // in-flight `migrate`

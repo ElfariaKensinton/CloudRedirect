@@ -186,7 +186,19 @@ void InitMac(){
                 try { g_namespaceApps.insert(static_cast<uint32_t>(std::stoul(appId))); } catch (...) {}
             }
         }
-    }    LOG("[Mac] Steam path: %s; account=%u; namespace apps: %zu",g_steamPath.c_str(),g_accountId.load(),g_namespaceApps.size());
+    }
+    if (g_namespaceApps.empty()) {
+        const std::string configPath = XdgConfigHome() + "/CloudRedirect/config.json";
+        LOG("[Mac] No target namespace apps configured; set namespace_apps in %s or SLSsteam AdditionalApps.", configPath.c_str());
+    } else {
+        std::string ids;
+        for (uint32_t appId : g_namespaceApps) {
+            if (!ids.empty()) ids += ",";
+            ids += std::to_string(appId);
+        }
+        LOG("[Mac] Target namespace apps: %s", ids.c_str());
+    }
+    LOG("[Mac] Steam path: %s; account=%u; namespace apps: %zu", g_steamPath.c_str(), g_accountId.load(), g_namespaceApps.size());
 }
 bool IsNamespaceApp(uint32_t id){std::lock_guard<std::mutex>lk(g_mutex);return g_namespaceApps.count(id)!=0;}
 bool HasNamespaceApps(){std::lock_guard<std::mutex>lk(g_mutex);return !g_namespaceApps.empty();}

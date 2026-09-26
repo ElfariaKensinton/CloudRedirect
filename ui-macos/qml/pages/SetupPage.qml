@@ -156,6 +156,60 @@ Page {
                 }
             }
 
+            // Target app IDs
+            Frame {
+                Layout.fillWidth: true
+                Layout.leftMargin: 20
+                Layout.rightMargin: 20
+
+                ColumnLayout {
+                    width: parent.width
+                    spacing: 6
+
+                    Label { text: "CloudRedirect target apps"; font.bold: true }
+                    Label {
+                        text: "Add AppIDs that CloudRedirect should redirect. SLSsteam is not required when using this list."
+                        wrapMode: Text.WordWrap
+                        Layout.fillWidth: true
+                        opacity: 0.7
+                    }
+
+                    RowLayout {
+                        Layout.fillWidth: true
+                        TextField {
+                            id: targetAppIdField
+                            placeholderText: "AppID, e.g. 123456"
+                            inputMethodHints: Qt.ImhDigitsOnly
+                            validator: RegularExpressionValidator { regularExpression: /^[1-9][0-9]{0,9}$/ }
+                            Layout.fillWidth: true
+                        }
+                        Button {
+                            text: "Add"
+                            enabled: backend && targetAppIdField.acceptableInput
+                            onClicked: {
+                                if (backend && backend.addTargetApp(Number(targetAppIdField.text)))
+                                    targetAppIdField.clear()
+                            }
+                        }
+                    }
+
+                    Repeater {
+                        model: backend ? backend.targetAppIds : []
+                        delegate: Frame {
+                            Layout.fillWidth: true
+                            RowLayout {
+                                anchors.fill: parent
+                                Label { text: String(modelData); font.family: "monospace"; Layout.fillWidth: true }
+                                Button {
+                                    text: "Remove"
+                                    onClicked: { if (backend) backend.removeTargetApp(Number(modelData)) }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             // CloudRedirect status
             Frame {
                 Layout.fillWidth: true
