@@ -473,7 +473,7 @@ Page {
                 Layout.alignment: Qt.AlignHCenter
                 Layout.topMargin: 40
                 visible: appsList.length === 0
-                text: "No apps found.\n\nInstall games via SLSsteam to see them here."
+                text: "No apps found.\n\nLaunch Steam with CloudRedirect and start a game to populate this list."
                 horizontalAlignment: Text.AlignHCenter
                 opacity: 0.5
             }
