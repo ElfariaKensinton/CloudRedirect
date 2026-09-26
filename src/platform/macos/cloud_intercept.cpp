@@ -22,126 +22,6 @@ static bool DigitsOnly(const std::string& s) {
     return true;
 }
 
-static void LoadSlssteamAdditionalApps(const std::string& path) {
-    std::ifstream f(path);
-    if (!f) return;
-
-    bool inAdditional = false;
-    bool disableCloudSeen = false;
-    bool disableCloud = false;
-    std::vector<uint32_t> parsedApps;
-    std::string line;
-
-    auto trim = [](std::string value) {
-        const size_t first = value.find_first_not_of(" \t\r\n");
-        if (first == std::string::npos) return std::string();
-        const size_t last = value.find_last_not_of(" \t\r\n");
-        return value.substr(first, last - first + 1);
-    };
-
-    auto parseBool = [](const std::string& value, bool* out) {
-        if (value == "yes" || value == "true" || value == "1" ||
-            value == "Yes" || value == "True" || value == "TRUE") {
-            *out = true;
-            return true;
-        }
-        if (value == "no" || value == "false" || value == "0" ||
-            value == "No" || value == "False" || value == "FALSE") {
-            *out = false;
-            return true;
-        }
-        return false;
-    };
-
-    auto appendApp = [&](const std::string& text) {
-        std::string value = trim(text);
-        const size_t comment = value.find('#');
-        if (comment != std::string::npos)
-            value = trim(value.substr(0, comment));
-        if (!DigitsOnly(value)) return;
-        try {
-            const uint32_t appId = static_cast<uint32_t>(std::stoul(value));
-            if (appId != 0)
-                parsedApps.push_back(appId);
-        } catch (...) {
-        }
-    };
-
-    while (std::getline(f, line)) {
-        const size_t first = line.find_first_not_of(" \t");
-        if (first == std::string::npos) continue;
-
-        const std::string trimmed = trim(line);
-        if (trimmed.empty() || trimmed[0] == '#') continue;
-
-        // Handle list items before top-level key detection. SLSsteam's YAML
-        // commonly uses unindented "- 123" entries under AdditionalApps.
-        if (trimmed.rfind("- ", 0) == 0) {
-            if (inAdditional)
-                appendApp(trimmed.substr(2));
-            continue;
-        }
-
-        const size_t colon = trimmed.find(':');
-        if (colon == std::string::npos) {
-            inAdditional = false;
-            continue;
-        }
-
-        const std::string key = trim(trimmed.substr(0, colon));
-        std::string value = trim(trimmed.substr(colon + 1));
-        const size_t comment = value.find('#');
-        if (comment != std::string::npos)
-            value = trim(value.substr(0, comment));
-
-        if (key == "DisableCloud") {
-            bool parsed = false;
-            if (parseBool(value, &parsed)) {
-                disableCloudSeen = true;
-                disableCloud = parsed;
-            }
-            inAdditional = false;
-            continue;
-        }
-
-        if (key == "AdditionalApps") {
-            inAdditional = true;
-
-            // Also accept AdditionalApps: [123, 456].
-            if (!value.empty() && value.front() == '[' && value.back() == ']') {
-                const std::string body = value.substr(1, value.size() - 2);
-                std::string cur;
-                for (size_t i = 0; i <= body.size(); ++i) {
-                    const char c = (i < body.size()) ? body[i] : ',';
-                    if (c >= '0' && c <= '9') {
-                        cur += c;
-                    } else if (!cur.empty()) {
-                        appendApp(cur);
-                        cur.clear();
-                    }
-                }
-                inAdditional = false;
-            }
-            continue;
-        }
-
-        if (first == 0)
-            inAdditional = false;
-    }
-
-    size_t added = 0;
-    if (disableCloudSeen && !disableCloud) {
-        for (uint32_t appId : parsedApps) {
-            if (g_namespaceApps.insert(appId).second)
-                ++added;
-        }
-    }
-
-    LOG("[Mac] SLSsteam config: %s; DisableCloud=%s; AdditionalApps parsed=%zu added=%zu",
-        path.c_str(),
-        disableCloudSeen ? (disableCloud ? "yes" : "no") : "missing",
-        parsedApps.size(), added);
-}
 
 static void LoadApps(const std::string& path){
     std::ifstream f(path);
@@ -257,35 +137,7 @@ void InitMac(){
     std::lock_guard<std::mutex> lk(g_mutex);
     g_namespaceApps.clear();
     g_steamPath=XdgHome()+"/Library/Application Support/Steam";
-    const std::string configRoot = XdgConfigHome();
-    const std::string home = XdgHome();
-
-    LoadApps(configRoot+"/CloudRedirect/config.json");
-
-    // SLSsteam's documented config is ~/.config/SLSsteam/config.yaml on Linux.
-    // macOS builds may instead follow the platform's Application Support layout,
-    // so probe all known layouts rather than silently assuming one of them.
-    const std::vector<std::string> slssteamConfigPaths = {
-        home + "/.config/SLSsteam/config.yaml",
-        configRoot + "/SLSsteam/config.yaml",
-        configRoot + "/Steam/SLSsteam/config.yaml",
-        g_steamPath + "/SLSsteam/config.yaml",
-        g_steamPath + "/config/SLSsteam/config.yaml",
-    };
-
-    std::unordered_set<std::string> seenConfigPaths;
-    for (const auto& path : slssteamConfigPaths) {
-        if (!seenConfigPaths.insert(path).second)
-            continue;
-        std::error_code pathEc;
-        const bool exists = std::filesystem::is_regular_file(path, pathEc);
-        LOG("[Mac] SLSsteam config probe: %s -> %s%s",
-            path.c_str(),
-            exists ? "FOUND" : "MISSING",
-            pathEc ? " (filesystem error)" : "");
-        if (exists)
-            LoadSlssteamAdditionalApps(path);
-    }
+    LoadApps(XdgConfigHome()+"/CloudRedirect/config.json");
 
     const std::filesystem::path userdata = std::filesystem::path(g_steamPath) / "userdata";
     const uint32_t selectedAccount = ResolveActiveAccountId(g_steamPath);
@@ -321,20 +173,17 @@ void InitMac(){
         if (!ids.empty()) ids += ",";
         ids += std::to_string(appId);
     }
-    if (ids.empty()) ids = "<none configured>";
-    LOG("[Mac] Target policy: configured namespace AppIDs only (%s)", ids.c_str());
-    LOG("[Mac] Steam path: %s; account=%u; namespaceApps=%zu; target=namespace-only",
+    if (ids.empty()) ids = "<none preseeded>";
+    LOG("[Mac] Target policy: ALL non-zero Steam AppIDs (known/preseeded: %s)", ids.c_str());
+    LOG("[Mac] Steam path: %s; account=%u; knownApps=%zu; target=all",
         g_steamPath.c_str(), g_accountId.load(), g_namespaceApps.size());
 }
 bool IsNamespaceApp(uint32_t id){
-    if (id == 0) return false;
-    std::lock_guard<std::mutex> lk(g_mutex);
-    return g_namespaceApps.count(id) > 0;
+    // macOS has no Linux/SLSsteam namespace dependency. Every real Steam
+    // AppID is a CloudRedirect candidate; the set is only a known-app seed.
+    return id != 0;
 }
-bool HasNamespaceApps(){
-    std::lock_guard<std::mutex> lk(g_mutex);
-    return !g_namespaceApps.empty();
-}
+bool HasNamespaceApps(){ return true; }
 std::vector<uint32_t> GetNamespaceApps(){std::lock_guard<std::mutex>lk(g_mutex);return std::vector<uint32_t>(g_namespaceApps.begin(),g_namespaceApps.end());}
 void RegisterNamespaceApp(uint32_t id){std::lock_guard<std::mutex>lk(g_mutex);if(id)g_namespaceApps.insert(id);}
 std::string GetSteamPath(){std::lock_guard<std::mutex>lk(g_mutex);return g_steamPath;}
