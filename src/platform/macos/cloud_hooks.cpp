@@ -713,26 +713,26 @@ extern "C" bool hook_NotificationDirect(
 extern "C" bool hook_SynchronizeApp(void*t,unsigned int app,bool syncClient,bool syncServer){
  auto orig=g_origSynchronizeApp.load(std::memory_order_acquire);
  LOG("[Mac] RemoteStorage SynchronizeApp app=%u client=%d server=%d",app,syncClient?1:0,syncServer?1:0);
- fprintf(stderr,"[CloudRedirect] SynchronizeApp app=%u client=%d server=%d\\n",app,syncClient?1:0,syncServer?1:0);
+ fprintf(stderr,"[CloudRedirect] SynchronizeApp app=%u client=%d server=%d\n",app,syncClient?1:0,syncServer?1:0);
  return orig?orig(t,app,syncClient,syncServer):false;
 }
 extern "C" bool hook_IsAppSyncInProgress(void*t,unsigned int app){
  auto orig=g_origIsAppSyncInProgress.load(std::memory_order_acquire);
  const bool result=orig?orig(t,app):false;
  LOG("[Mac] RemoteStorage IsAppSyncInProgress app=%u -> %d",app,result?1:0);
- fprintf(stderr,"[CloudRedirect] IsAppSyncInProgress app=%u -> %d\\n",app,result?1:0);
+ fprintf(stderr,"[CloudRedirect] IsAppSyncInProgress app=%u -> %d\n",app,result?1:0);
  return result;
 }
 extern "C" void hook_RunAutoCloudOnAppLaunch(void*t,unsigned int app){
  auto orig=g_origRunAutoCloudLaunch.load(std::memory_order_acquire);
  LOG("[Mac] RemoteStorage RunAutoCloudOnAppLaunch app=%u",app);
- fprintf(stderr,"[CloudRedirect] RunAutoCloudOnAppLaunch app=%u\\n",app);
+ fprintf(stderr,"[CloudRedirect] RunAutoCloudOnAppLaunch app=%u\n",app);
  if(orig) orig(t,app);
 }
 extern "C" void hook_RunAutoCloudOnAppExit(void*t,unsigned int app){
  auto orig=g_origRunAutoCloudExit.load(std::memory_order_acquire);
  LOG("[Mac] RemoteStorage RunAutoCloudOnAppExit app=%u",app);
- fprintf(stderr,"[CloudRedirect] RunAutoCloudOnAppExit app=%u\\n",app);
+ fprintf(stderr,"[CloudRedirect] RunAutoCloudOnAppExit app=%u\n",app);
  if(orig) orig(t,app);
 }
 
