@@ -731,6 +731,7 @@ extern "C" bool hook_ServerMethodRaw(
          return origResult;
 
      SetRawResponse(response,fileRes->body);
+     LOG("[Mac] raw Cloud RPC handled: %s app=%u", m, app);
      return true;
  }
 
@@ -746,6 +747,7 @@ extern "C" bool hook_ServerMethodRaw(
    return orig(t,m,buf,len,response,options);
 
  SetRawResponse(response,res->body);
+ LOG("[Mac] raw Cloud RPC handled: %s app=%u", m, app);
  return true;
 }
 
