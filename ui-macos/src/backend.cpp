@@ -267,56 +267,6 @@ void Backend::scanStorageForApps()
     emit appsChanged();
 }
 
-void Backend::loadSLSsteamApps()
-{
-    m_apps.clear();
-    QString home = realHomePath();
-
-    QStringList configPaths = {
-        xdgConfigHome() + "/SLSsteam/config.yaml",
-        home + "/.var/app/com.valvesoftware.Steam/.config/SLSsteam/config.yaml",
-    };
-
-    for (const auto &configPath : configPaths) {
-        QFile f(configPath);
-        if (!f.open(QIODevice::ReadOnly | QIODevice::Text))
-            continue;
-
-        QTextStream in(&f);
-        bool inAdditionalApps = false;
-
-        while (!in.atEnd()) {
-            QString line = in.readLine();
-            QString trimmed = line.trimmed();
-
-            if (!line.startsWith(' ') && !line.startsWith('\t') && !trimmed.startsWith('-')) {
-                if (inAdditionalApps) break;
-                if (trimmed.startsWith("AdditionalApps")) {
-                    inAdditionalApps = true;
-                    continue;
-                }
-            }
-
-            if (inAdditionalApps && trimmed.startsWith("- ")) {
-                QString numStr = trimmed.mid(2).trimmed();
-                int commentIdx = numStr.indexOf('#');
-                if (commentIdx >= 0) numStr = numStr.left(commentIdx).trimmed();
-
-                bool ok;
-                uint appId = numStr.toUInt(&ok);
-                if (ok && appId > 0) {
-                    QString name = m_nameCache.value(appId, QString("App %1").arg(appId));
-                    m_apps.append({appId, name, QString(), QString(), 0, 0, true, false});
-                }
-            }
-        }
-        f.close();
-
-        if (!m_apps.isEmpty()) break;
-    }
-
-    emit appsChanged();
-}
 
 void Backend::loadConfig()
 {
@@ -352,8 +302,7 @@ void Backend::loadConfig()
             m_namespaceApps.insert(appId);
     }
     // Local storage entries are not target declarations. Keep them visible in
-    // the Apps page, but only explicit namespace_apps entries (or SLSsteam
-    // AdditionalApps consumed by the dylib) define interception scope.
+    // Explicit namespace_apps entries are retained as preseeded/known app IDs.
     fprintf(stderr, "[Backend] loadConfig: provider=%s syncFolder=%s notifications=%s targetApps=%d\n",
         m_providerName.toUtf8().constData(), m_syncFolderPath.toUtf8().constData(),
         m_notificationsEnabled ? "true" : "false", m_namespaceApps.size());
