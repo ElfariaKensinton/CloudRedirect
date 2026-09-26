@@ -43,9 +43,11 @@ using ParseFromArrayFn=bool(*)(void*,const void*,int);
 using SerializeToArrayFn=bool(*)(const void*,void*,int);
 using ByteSizeFn=int(*)(const void*);
 using SerializeWithCachedSizesToArrayFn=unsigned char*(*)(const void*,unsigned char*);
+using ByteSizeLongFn=size_t(*)(const void*);
 
 static std::atomic<ParseFromArrayFn> g_parseFromArray{nullptr};
 static std::atomic<SerializeToArrayFn> g_serializeToArray{nullptr};
+static std::atomic<SerializeWithCachedSizesToArrayFn> g_serializeWithCachedSizesToArray{nullptr};
 
 static std::atomic<RawServerMethodFn> g_origServerMethod{nullptr};
 static std::atomic<RawServerNotificationFn> g_origServerNotification{nullptr};
@@ -175,10 +177,16 @@ static void ResolveProtobufHelpers()
 
     void* serialize = FindLoadedImageSymbol(
         "_ZNK6google8protobuf11MessageLite15SerializeToArrayEPvi");
+    void* serializeCached = FindLoadedImageSymbol(
+        "_ZNK6google8protobuf11MessageLite31SerializeWithCachedSizesToArrayEPh");
 
     g_parseFromArray.store(reinterpret_cast<ParseFromArrayFn>(parse), std::memory_order_release);
     g_serializeToArray.store(reinterpret_cast<SerializeToArrayFn>(serialize), std::memory_order_release);
-    LOG("[Mac] protobuf typed helpers parse=%p serialize=%p", parse, serialize);
+    g_serializeWithCachedSizesToArray.store(
+        reinterpret_cast<SerializeWithCachedSizesToArrayFn>(serializeCached),
+        std::memory_order_release);
+    LOG("[Mac] protobuf typed helpers parse=%p serialize=%p cachedSerialize=%p",
+        parse, serialize, serializeCached);
 }
 
 static bool SerializeTypedMessage(const void* message, std::vector<uint8_t>& out)
@@ -187,29 +195,52 @@ static bool SerializeTypedMessage(const void* message, std::vector<uint8_t>& out
     ResolveProtobufHelpers();
 
     auto serialize = g_serializeToArray.load(std::memory_order_acquire);
+    auto cachedSerialize = g_serializeWithCachedSizesToArray.load(std::memory_order_acquire);
+    auto* vt = *reinterpret_cast<void***>(const_cast<void*>(message));
+    if (!vt)
+        return false;
+
     if (serialize) {
-        auto* vt = *reinterpret_cast<void***>(const_cast<void*>(message));
-        // Old Steam protobuf Message vtable: slot 9 = ByteSize(), slot 11 =
-        // SerializeWithCachedSizesToArray(unsigned char*).
         auto byteSize = reinterpret_cast<ByteSizeFn>(vt[9]);
+        if (!byteSize)
+            return false;
         const int size = byteSize(message);
-        if (size < 0 || size > 64 * 1024 * 1024) return false;
+        if (size < 0 || size > 64 * 1024 * 1024)
+            return false;
         out.resize(static_cast<size_t>(size));
-        if (size == 0) return true;
-        if (!serialize(message, out.data(), size)) return false;
+        if (size == 0)
+            return true;
+        return serialize(message, out.data(), size);
+    }
+
+    // Newer protobuf builds expose SerializeToArray as a non-virtual helper
+    // that may be optimized away. Prefer the stable MessageLite helper
+    // SerializeWithCachedSizesToArray, after forcing ByteSizeLong()/ByteSize()
+    // through the message vtable. On older Steam protobuf ABIs slot 9 is
+    // ByteSize(); on newer ABIs it is ByteSizeLong(); both return the encoded
+    // size through the integer return register.
+    if (cachedSerialize) {
+        auto byteSizeLong = reinterpret_cast<ByteSizeLongFn>(vt[9]);
+        if (!byteSizeLong)
+            return false;
+        const size_t size = byteSizeLong(message);
+        if (size > 64 * 1024 * 1024)
+            return false;
+        out.resize(size);
+        if (size == 0)
+            return true;
+        auto* end = cachedSerialize(message, out.data());
+        if (!end)
+            return false;
+        if (end != out.data() + size) {
+            LOG("[Mac] protobuf cached serializer size mismatch: expected=%zu wrote=%td",
+                size, end - out.data());
+            return false;
+        }
         return true;
     }
 
-    auto* vt = *reinterpret_cast<void***>(const_cast<void*>(message));
-    auto byteSize = reinterpret_cast<ByteSizeFn>(vt[9]);
-    auto cachedSerialize = reinterpret_cast<SerializeWithCachedSizesToArrayFn>(vt[11]);
-    if (!byteSize || !cachedSerialize) return false;
-    const int size = byteSize(message);
-    if (size < 0 || size > 64 * 1024 * 1024) return false;
-    out.resize(static_cast<size_t>(size));
-    if (size == 0) return true;
-    auto* end = cachedSerialize(message, out.data());
-    return end == out.data() + size;
+    return false;
 }
 
 static bool ParseTypedMessage(void* message, const std::vector<uint8_t>& body)
