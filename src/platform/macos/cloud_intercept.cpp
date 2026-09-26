@@ -9,6 +9,7 @@
 #include <cctype>
 #include <cstdlib>
 #include <unordered_set>
+#include <vector>
 
 static std::string g_steamPath;
 static std::atomic<uint32_t> g_accountId{0};
@@ -174,27 +175,14 @@ void InitMac(){
         LOG("[Mac] Multiple Steam userdata accounts found but loginusers.vdf did not identify one; refusing ambiguous account selection");
     }
 
-    if (activeAccount != 0) {
-        const auto storage = std::filesystem::path(XdgConfigHome()) /
-            "CloudRedirect" / "storage" / std::to_string(activeAccount);
-        std::error_code sec;
-        for (const auto& app : std::filesystem::directory_iterator(storage, sec)) {
-            if (sec) break;
-            if (!app.is_directory()) continue;
-            const std::string appId = app.path().filename().string();
-            if (DigitsOnly(appId)) {
-                try { g_namespaceApps.insert(static_cast<uint32_t>(std::stoul(appId))); } catch (...) {}
-            }
-        }
-    }
     std::string ids;
     for (uint32_t appId : g_namespaceApps) {
         if (!ids.empty()) ids += ",";
         ids += std::to_string(appId);
     }
-    if (ids.empty()) ids = "<none preseeded>";
-    LOG("[Mac] Target policy: ALL non-zero AppIDs (known/preseeded: %s)", ids.c_str());
-    LOG("[Mac] Steam path: %s; account=%u; knownApps=%zu; target=all",
+    if (ids.empty()) ids = "<none configured>";
+    LOG("[Mac] Target policy: configured namespace AppIDs only (%s)", ids.c_str());
+    LOG("[Mac] Steam path: %s; account=%u; namespaceApps=%zu; target=namespace-only",
         g_steamPath.c_str(), g_accountId.load(), g_namespaceApps.size());
 }
 bool IsNamespaceApp(uint32_t id){
