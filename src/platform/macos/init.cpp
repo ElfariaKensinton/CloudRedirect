@@ -65,12 +65,11 @@ static void CR_OnLoad()
 {
     Log::Init();
     LOG("[Mac] dylib constructor process=%s", getprogname() ? getprogname() : "<unknown>");
-    // DYLD_INSERT_LIBRARIES reaches child processes. Only the Steam client
-    // itself is allowed to initialize hooks; every other process must simply
-    // drop the inherited variable and continue untouched.
+    // DYLD_INSERT_LIBRARIES may contain multiple injected libraries. CloudRedirect
+    // only initializes its Steam hooks; non-Steam processes must be left completely
+    // untouched so the rest of the injection chain remains intact.
     if (!IsSteamProcess()) {
         LOG("[Mac] not Steam process; skipping hook initialization");
-        unsetenv("DYLD_INSERT_LIBRARIES");
         return;
     }
     g_steamProcess.store(true, std::memory_order_release);
