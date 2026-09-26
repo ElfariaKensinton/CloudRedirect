@@ -144,17 +144,43 @@ static void LoadSlssteamAdditionalApps(const std::string& path) {
 }
 
 static void LoadApps(const std::string& path){
-    std::ifstream f(path); if(!f)return;
+    std::ifstream f(path);
+    if(!f){
+        LOG("[Mac] CloudRedirect config probe: %s -> MISSING", path.c_str());
+        return;
+    }
+
     std::string s((std::istreambuf_iterator<char>(f)),{});
-    size_t p=s.find("\"namespace_apps\""); if(p==std::string::npos)p=s.find("\"AdditionalApps\"");
-    if(p==std::string::npos)return;
-    size_t a=s.find('[',p),b=s.find(']',a); if(a==std::string::npos||b==std::string::npos)return;
+    size_t p=s.find("\"namespace_apps\"");
+    if(p==std::string::npos)
+        p=s.find("\"AdditionalApps\"");
+    if(p==std::string::npos){
+        LOG("[Mac] CloudRedirect config probe: %s -> FOUND, no namespace_apps key", path.c_str());
+        return;
+    }
+
+    size_t a=s.find('[',p), b=s.find(']',a);
+    if(a==std::string::npos || b==std::string::npos){
+        LOG("[Mac] CloudRedirect config probe: %s -> FOUND, malformed target array", path.c_str());
+        return;
+    }
+
+    const size_t before = g_namespaceApps.size();
     std::string body=s.substr(a+1,b-a-1), cur;
     for(size_t i=0;i<=body.size();i++){
         char c=(i<body.size()?body[i]:',');
         if(c>='0'&&c<='9') cur+=c;
-        else if(!cur.empty()){try{g_namespaceApps.insert((uint32_t)std::stoul(cur));}catch(...){ }cur.clear();}
+        else if(!cur.empty()){
+            try{
+                const uint32_t appId=(uint32_t)std::stoul(cur);
+                if(appId != 0) g_namespaceApps.insert(appId);
+            }catch(...){ }
+            cur.clear();
+        }
     }
+
+    LOG("[Mac] CloudRedirect config probe: %s -> FOUND, target apps added=%zu",
+        path.c_str(), g_namespaceApps.size() - before);
 }
 
 static uint32_t ResolveActiveAccountId(const std::string& steamPath) {
