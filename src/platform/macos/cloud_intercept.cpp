@@ -187,21 +187,22 @@ void InitMac(){
             }
         }
     }
-    if (g_namespaceApps.empty()) {
-        const std::string configPath = XdgConfigHome() + "/CloudRedirect/config.json";
-        LOG("[Mac] No target namespace apps configured; set namespace_apps in %s or SLSsteam AdditionalApps.", configPath.c_str());
-    } else {
-        std::string ids;
-        for (uint32_t appId : g_namespaceApps) {
-            if (!ids.empty()) ids += ",";
-            ids += std::to_string(appId);
-        }
-        LOG("[Mac] Target namespace apps: %s", ids.c_str());
+    std::string ids;
+    for (uint32_t appId : g_namespaceApps) {
+        if (!ids.empty()) ids += ",";
+        ids += std::to_string(appId);
     }
-    LOG("[Mac] Steam path: %s; account=%u; namespace apps: %zu", g_steamPath.c_str(), g_accountId.load(), g_namespaceApps.size());
+    if (ids.empty()) ids = "<none preseeded>";
+    LOG("[Mac] Target policy: ALL non-zero AppIDs (known/preseeded: %s)", ids.c_str());
+    LOG("[Mac] Steam path: %s; account=%u; knownApps=%zu; target=all",
+        g_steamPath.c_str(), g_accountId.load(), g_namespaceApps.size());
 }
-bool IsNamespaceApp(uint32_t id){std::lock_guard<std::mutex>lk(g_mutex);return g_namespaceApps.count(id)!=0;}
-bool HasNamespaceApps(){std::lock_guard<std::mutex>lk(g_mutex);return !g_namespaceApps.empty();}
+bool IsNamespaceApp(uint32_t id){
+    // macOS mode applies CloudRedirect to every real AppID. The configured/
+    // discovered set is retained only as a known-app list for startup seeding.
+    return id != 0;
+}
+bool HasNamespaceApps(){ return true; }
 std::vector<uint32_t> GetNamespaceApps(){std::lock_guard<std::mutex>lk(g_mutex);return std::vector<uint32_t>(g_namespaceApps.begin(),g_namespaceApps.end());}
 void RegisterNamespaceApp(uint32_t id){std::lock_guard<std::mutex>lk(g_mutex);if(id)g_namespaceApps.insert(id);}
 std::string GetSteamPath(){std::lock_guard<std::mutex>lk(g_mutex);return g_steamPath;}
