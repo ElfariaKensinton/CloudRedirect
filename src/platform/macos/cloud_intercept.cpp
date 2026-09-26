@@ -1,5 +1,4 @@
 #include "cloud_intercept.h"
-#include "json.h"
 #include "log.h"
 #include "xdg.h"
 #include <atomic>
@@ -9,59 +8,153 @@
 #include <cctype>
 #include <cstdlib>
 #include <unordered_set>
+#include <vector>
+#include <string>
 
 static std::string g_steamPath;
 static std::atomic<uint32_t> g_accountId{0};
 static std::mutex g_mutex;
 static std::unordered_set<uint32_t> g_namespaceApps;
 
+static std::string Trim(std::string value) {
+    while (!value.empty() && std::isspace(static_cast<unsigned char>(value.back())))
+        value.pop_back();
+    size_t first = 0;
+    while (first < value.size() && std::isspace(static_cast<unsigned char>(value[first])))
+        ++first;
+    if (first != 0) value.erase(0, first);
+    return value;
+}
+
 static bool DigitsOnly(const std::string& s) {
     if (s.empty()) return false;
-    for (char c : s) if (!std::isdigit(static_cast<unsigned char>(c))) return false;
+    for (char c : s)
+        if (!std::isdigit(static_cast<unsigned char>(c))) return false;
     return true;
 }
 
-static void LoadSlssteamAdditionalApps(const std::string& path) {
-    std::ifstream f(path);
-    if (!f) return;
-    std::string line;
-    bool inAdditional = false;
-    while (std::getline(f, line)) {
-        size_t first = line.find_first_not_of(" \t");
-        const std::string trimmed = first == std::string::npos ? std::string() : line.substr(first);
-        if (first == 0 && !trimmed.empty() &&
-            trimmed != "AdditionalApps:" &&
-            trimmed.rfind("AdditionalApps:", 0) != 0) {
-            inAdditional = false;
-        }
-        if (trimmed == "AdditionalApps:" || trimmed.rfind("AdditionalApps:", 0) == 0) {
-            inAdditional = true;
-            continue;
-        }
-        if (!inAdditional) continue;
-        if (trimmed.rfind("- ", 0) != 0) continue;
-        std::string value = trimmed.substr(2);
-        const size_t comment = value.find('#');
-        if (comment != std::string::npos) value.resize(comment);
-        while (!value.empty() && std::isspace(static_cast<unsigned char>(value.back()))) value.pop_back();
-        while (!value.empty() && std::isspace(static_cast<unsigned char>(value.front()))) value.erase(value.begin());
-        if (!DigitsOnly(value)) continue;
-        try { g_namespaceApps.insert(static_cast<uint32_t>(std::stoul(value))); } catch (...) {}
+static bool ParseBoolScalar(std::string value, bool& out) {
+    value = Trim(value);
+    while (value.size() >= 2 &&
+           ((value.front() == '"' && value.back() == '"') ||
+            (value.front() == '\'' && value.back() == '\''))) {
+        value = value.substr(1, value.size() - 2);
+        value = Trim(value);
     }
+
+    std::string lower;
+    lower.reserve(value.size());
+    for (char c : value)
+        lower.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
+
+    if (lower == "yes" || lower == "true" || lower == "on" || lower == "1") {
+        out = true;
+        return true;
+    }
+    if (lower == "no" || lower == "false" || lower == "off" || lower == "0") {
+        out = false;
+        return true;
+    }
+    return false;
 }
 
-static void LoadApps(const std::string& path){
-    std::ifstream f(path); if(!f)return;
-    std::string s((std::istreambuf_iterator<char>(f)),{});
-    size_t p=s.find("\"namespace_apps\""); if(p==std::string::npos)p=s.find("\"AdditionalApps\"");
-    if(p==std::string::npos)return;
-    size_t a=s.find('[',p),b=s.find(']',a); if(a==std::string::npos||b==std::string::npos)return;
-    std::string body=s.substr(a+1,b-a-1), cur;
-    for(size_t i=0;i<=body.size();i++){
-        char c=(i<body.size()?body[i]:',');
-        if(c>='0'&&c<='9') cur+=c;
-        else if(!cur.empty()){try{g_namespaceApps.insert((uint32_t)std::stoul(cur));}catch(...){ }cur.clear();}
+static void ParseAppIds(std::string value, std::vector<uint32_t>& out) {
+    const size_t comment = value.find('#');
+    if (comment != std::string::npos)
+        value.resize(comment);
+    value = Trim(value);
+
+    std::string current;
+    auto flush = [&] {
+        if (current.empty()) return;
+        try {
+            const unsigned long id = std::stoul(current);
+            if (id > 0 && id <= 0xFFFFFFFFUL)
+                out.push_back(static_cast<uint32_t>(id));
+        } catch (...) {}
+        current.clear();
+    };
+
+    for (char c : value) {
+        if (c >= '0' && c <= '9')
+            current.push_back(c);
+        else
+            flush();
     }
+    flush();
+}
+
+// Returns: -1 = config missing/unreadable, 0 = DisableCloud enabled/missing,
+// 1 = usable config. Matches the Linux SLSsteam policy: CloudRedirect only
+// manages apps explicitly listed under AdditionalApps when DisableCloud=false.
+static int LoadSlssteamConfig(const std::string& path, int* outAdded) {
+    std::ifstream f(path);
+    if (!f) return -1;
+
+    bool haveDisableCloud = false;
+    bool disableCloud = true;
+    bool inAdditional = false;
+    std::vector<uint32_t> parsedApps;
+
+    std::string line;
+    while (std::getline(f, line)) {
+        if (!line.empty() && line.back() == '\r')
+            line.pop_back();
+
+        const size_t comment = line.find('#');
+        if (comment != std::string::npos)
+            line.resize(comment);
+
+        size_t first = line.find_first_not_of(" \t");
+        if (first == std::string::npos)
+            continue;
+
+        const std::string trimmed = line.substr(first);
+
+        if (trimmed.rfind("DisableCloud:", 0) == 0) {
+            bool value = false;
+            if (ParseBoolScalar(trimmed.substr(std::strlen("DisableCloud:")), value)) {
+                disableCloud = value;
+                haveDisableCloud = true;
+            }
+            inAdditional = false;
+            continue;
+        }
+
+        if (trimmed.rfind("AdditionalApps:", 0) == 0) {
+            inAdditional = true;
+            ParseAppIds(trimmed.substr(std::strlen("AdditionalApps:")), parsedApps);
+            continue;
+        }
+
+        if (!inAdditional)
+            continue;
+
+        // YAML list item form:
+        // AdditionalApps:
+        //   - 123
+        if (trimmed.rfind("- ", 0) == 0 || trimmed == "-")
+        {
+            ParseAppIds(trimmed.size() > 1 ? trimmed.substr(1) : std::string(), parsedApps);
+            continue;
+        }
+
+        // A new top-level YAML key ends the AdditionalApps section.
+        if (first == 0 && trimmed.find(':') != std::string::npos)
+            inAdditional = false;
+    }
+
+    if (!haveDisableCloud || disableCloud)
+        return 0;
+
+    int added = 0;
+    for (uint32_t appId : parsedApps) {
+        if (g_namespaceApps.insert(appId).second)
+            ++added;
+    }
+
+    if (outAdded) *outAdded = added;
+    return 1;
 }
 
 static uint32_t ResolveActiveAccountId(const std::string& steamPath) {
@@ -89,7 +182,7 @@ static uint32_t ResolveActiveAccountId(const std::string& steamPath) {
             continue;
         }
 
-        if (depth == 1 && trimmed.size() > 2 && trimmed[0] == '"' ) {
+        if (depth == 1 && trimmed.size() > 2 && trimmed[0] == '"') {
             size_t end = trimmed.find('"', 1);
             if (end != std::string::npos) {
                 const std::string key = trimmed.substr(1, end - 1);
@@ -134,80 +227,127 @@ static uint32_t ResolveActiveAccountId(const std::string& steamPath) {
 }
 
 namespace CloudIntercept {
-void InitMac(){
+
+void InitMac() {
     std::lock_guard<std::mutex> lk(g_mutex);
     g_namespaceApps.clear();
-    g_steamPath=XdgHome()+"/Library/Application Support/Steam";
-    LoadApps(XdgConfigHome()+"/CloudRedirect/config.json");
-    // SLSsteam keeps its native config under ~/.config on macOS as well.
-    // Also retain the historical fallback paths used by older wrappers/installers.
-    LoadSlssteamAdditionalApps(XdgHome()+"/.config/SLSsteam/config.yaml");
-    LoadSlssteamAdditionalApps(XdgConfigHome()+"/SLSsteam/config.yaml");
-    LoadSlssteamAdditionalApps(g_steamPath + "/SLSsteam/config.yaml");
+    g_steamPath = XdgHome() + "/Library/Application Support/Steam";
 
-    const std::filesystem::path userdata = std::filesystem::path(g_steamPath) / "userdata";
+    const std::vector<std::string> configPaths = {
+        XdgConfigHome() + "/SLSsteam/config.yaml",
+        XdgHome() + "/.config/SLSsteam/config.yaml",
+        g_steamPath + "/SLSsteam/config.yaml",
+    };
+
+    bool foundConfig = false;
+    bool cloudAllowed = false;
+    for (const auto& configPath : configPaths) {
+        int added = 0;
+        const int result = LoadSlssteamConfig(configPath, &added);
+        if (result < 0)
+            continue;
+
+        foundConfig = true;
+        if (result == 0) {
+            LOG("[Mac] SLSsteam config found but DisableCloud is enabled/missing: %s",
+                configPath.c_str());
+        } else {
+            cloudAllowed = true;
+            LOG("[Mac] SLSsteam config: %s (AdditionalApps +%d)",
+                configPath.c_str(), added);
+        }
+        break;
+    }
+
+    if (!foundConfig)
+        LOG("[Mac] No SLSsteam config found; no namespace apps will be managed");
+    else if (!cloudAllowed)
+        LOG("[Mac] Namespace cloud policy disabled by SLSsteam config");
+
     const uint32_t selectedAccount = ResolveActiveAccountId(g_steamPath);
     if (selectedAccount != 0)
         g_accountId.store(selectedAccount, std::memory_order_relaxed);
 
-    std::error_code ec;
-    std::vector<uint32_t> userdataAccounts;
-    for (const auto& entry : std::filesystem::directory_iterator(userdata, ec)) {
-        if (ec) break;
-        if (!entry.is_directory()) continue;
-        const std::string name = entry.path().filename().string();
-        if (!DigitsOnly(name)) continue;
-        try {
-            uint32_t account = static_cast<uint32_t>(std::stoull(name));
-            if (account != 0)
-                userdataAccounts.push_back(account);
-        } catch (...) {
-            continue;
-        }
-    }
-
-    uint32_t activeAccount = g_accountId.load(std::memory_order_relaxed);
-    if (activeAccount == 0 && userdataAccounts.size() == 1) {
-        activeAccount = userdataAccounts.front();
-        g_accountId.store(activeAccount, std::memory_order_relaxed);
-    } else if (activeAccount == 0 && userdataAccounts.size() > 1) {
-        LOG("[Mac] Multiple Steam userdata accounts found but loginusers.vdf did not identify one; refusing ambiguous account selection");
-    }
-
-    if (activeAccount != 0) {
-        const auto storage = std::filesystem::path(XdgConfigHome()) /
-            "CloudRedirect" / "storage" / std::to_string(activeAccount);
-        std::error_code sec;
-        for (const auto& app : std::filesystem::directory_iterator(storage, sec)) {
-            if (sec) break;
-            if (!app.is_directory()) continue;
-            const std::string appId = app.path().filename().string();
-            if (DigitsOnly(appId)) {
-                try { g_namespaceApps.insert(static_cast<uint32_t>(std::stoul(appId))); } catch (...) {}
+    if (g_accountId.load(std::memory_order_relaxed) == 0) {
+        const std::filesystem::path userdata =
+            std::filesystem::path(g_steamPath) / "userdata";
+        std::error_code ec;
+        std::vector<uint32_t> userdataAccounts;
+        for (const auto& entry : std::filesystem::directory_iterator(userdata, ec)) {
+            if (ec) break;
+            if (!entry.is_directory()) continue;
+            const std::string name = entry.path().filename().string();
+            if (!DigitsOnly(name)) continue;
+            try {
+                const uint32_t account = static_cast<uint32_t>(std::stoull(name));
+                if (account != 0)
+                    userdataAccounts.push_back(account);
+            } catch (...) {
+                continue;
             }
         }
+
+        if (userdataAccounts.size() == 1)
+            g_accountId.store(userdataAccounts.front(), std::memory_order_relaxed);
+        else if (userdataAccounts.size() > 1)
+            LOG("[Mac] Multiple Steam userdata accounts found but loginusers.vdf did not identify one; refusing ambiguous account selection");
     }
+
     std::string ids;
     for (uint32_t appId : g_namespaceApps) {
         if (!ids.empty()) ids += ",";
         ids += std::to_string(appId);
     }
-    if (ids.empty()) ids = "<none preseeded>";
-    LOG("[Mac] Target policy: ALL non-zero AppIDs (known/preseeded: %s)", ids.c_str());
-    LOG("[Mac] Steam path: %s; account=%u; knownApps=%zu; target=all",
+    if (ids.empty()) ids = "<none>";
+    LOG("[Mac] Target policy: SLSsteam AdditionalApps only (%s)", ids.c_str());
+    LOG("[Mac] Steam path: %s; account=%u; namespaceApps=%zu; target=namespace-only",
         g_steamPath.c_str(), g_accountId.load(), g_namespaceApps.size());
 }
-bool IsNamespaceApp(uint32_t id){
-    // macOS mode applies CloudRedirect to every real AppID. The configured/
-    // discovered set is retained only as a known-app list for startup seeding.
-    return id != 0;
+
+bool IsNamespaceApp(uint32_t id) {
+    if (id == 0) return false;
+    std::lock_guard<std::mutex> lk(g_mutex);
+    return g_namespaceApps.count(id) > 0;
 }
-bool HasNamespaceApps(){ return true; }
-std::vector<uint32_t> GetNamespaceApps(){std::lock_guard<std::mutex>lk(g_mutex);return std::vector<uint32_t>(g_namespaceApps.begin(),g_namespaceApps.end());}
-void RegisterNamespaceApp(uint32_t id){std::lock_guard<std::mutex>lk(g_mutex);if(id)g_namespaceApps.insert(id);}
-std::string GetSteamPath(){std::lock_guard<std::mutex>lk(g_mutex);return g_steamPath;}
-uint32_t GetAccountId(){return g_accountId.load(std::memory_order_relaxed);}
-void SetAccountId(uint32_t id){g_accountId.store(id,std::memory_order_relaxed);}
-void SetSteamPath(const std::string& p){std::lock_guard<std::mutex>lk(g_mutex);g_steamPath=p;}
-void Shutdown(){}
+
+bool HasNamespaceApps() {
+    std::lock_guard<std::mutex> lk(g_mutex);
+    return !g_namespaceApps.empty();
 }
+
+std::vector<uint32_t> GetNamespaceApps() {
+    std::lock_guard<std::mutex> lk(g_mutex);
+    return std::vector<uint32_t>(g_namespaceApps.begin(), g_namespaceApps.end());
+}
+
+void RegisterNamespaceApp(uint32_t id) {
+    if (id == 0) return;
+    std::lock_guard<std::mutex> lk(g_mutex);
+    if (g_namespaceApps.insert(id).second)
+        LOG("[Mac] Dynamically registered namespace app: %u", id);
+}
+
+std::string GetSteamPath() {
+    std::lock_guard<std::mutex> lk(g_mutex);
+    return g_steamPath;
+}
+
+uint32_t GetAccountId() {
+    return g_accountId.load(std::memory_order_relaxed);
+}
+
+void SetAccountId(uint32_t id) {
+    g_accountId.store(id, std::memory_order_relaxed);
+    LOG("[Mac] Account ID set: %u", id);
+}
+
+void SetSteamPath(const std::string& path) {
+    std::lock_guard<std::mutex> lk(g_mutex);
+    g_steamPath = path;
+}
+
+void Shutdown() {
+    LOG("[Mac] CloudIntercept shutdown");
+}
+
+} // namespace CloudIntercept
