@@ -10,6 +10,7 @@ void SetOriginalIsCloudEnabled(void* orig);
 void SetOriginalIsCloudEnabledAccount(void* orig);
 void SetOriginalSetCloudEnabledApp(void* orig);
 void SetOriginalSetCloudEnabledAccount(void* orig);
+void SetOriginalRemoteStorageSync(void* syncApp, void* isSyncInProgress, void* runLaunch, void* runExit);
 void InstallGamesPlayedObserver(uintptr_t steamclientBase,size_t steamclientSize);
 void BeginShutdown();
 }
