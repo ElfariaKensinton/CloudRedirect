@@ -91,51 +91,69 @@ static std::optional<CloudIntercept::RpcResult> Dispatch(
     const char* method, uint32_t app, const std::vector<PB::Field>& fields);
 static void* FindLoadedImageSymbol(const char* wanted)
 {
+    if (!wanted || !*wanted)
+        return nullptr;
+
     if (void* p = dlsym(RTLD_DEFAULT, wanted))
         return p;
 
+    // Mach-O string tables store an extra leading '_' for external C/C++ symbols
+    // compared with the name accepted by dlsym(). Match both spellings below.
     const uint32_t count = _dyld_image_count();
-    for (uint32_t i = 0; i < count; ++i) {
-        const auto* mh = reinterpret_cast<const mach_header_64*>(_dyld_get_image_header(i));
-        const char* imageName = _dyld_get_image_name(i);
-        if (!mh || mh->magic != MH_MAGIC_64 || !imageName)
-            continue;
-        // Steam's protobuf implementation was observed in client.dylib; also
-        // accept steamclient images so this remains tolerant of Steam packaging changes.
-        if (!strstr(imageName, "client.dylib") &&
-            !strstr(imageName, "steamclient") &&
-            !strstr(imageName, "SteamClient"))
-            continue;
-
-        intptr_t slide = _dyld_get_image_vmaddr_slide(i);
-        const load_command* lc =
-            reinterpret_cast<const load_command*>(
-                reinterpret_cast<const uint8_t*>(mh) + sizeof(mach_header_64));
-        const symtab_command* symtab = nullptr;
-        uintptr_t linkeditBase = 0;
-        for (uint32_t j = 0; j < mh->ncmds; ++j) {
-            if (lc->cmd == LC_SYMTAB)
-                symtab = reinterpret_cast<const symtab_command*>(lc);
-            else if (lc->cmd == LC_SEGMENT_64) {
-                const auto* seg = reinterpret_cast<const segment_command_64*>(lc);
-                if (strcmp(seg->segname, SEG_LINKEDIT) == 0)
-                    linkeditBase = static_cast<uintptr_t>(seg->vmaddr) +
-                                   slide - static_cast<uintptr_t>(seg->fileoff);
-            }
-            lc = reinterpret_cast<const load_command*>(
-                reinterpret_cast<const uint8_t*>(lc) + lc->cmdsize);
-        }
-        if (!symtab || !linkeditBase)
-            continue;
-
-        const auto* strtab = reinterpret_cast<const char*>(linkeditBase + symtab->stroff);
-        const auto* symbols = reinterpret_cast<const nlist_64*>(linkeditBase + symtab->symoff);
-        for (uint32_t j = 0; j < symtab->nsyms; ++j) {
-            const auto& n = symbols[j];
-            if ((n.n_type & N_TYPE) == N_UNDF || n.n_un.n_strx >= symtab->strsize)
+    for (int pass = 0; pass < 2; ++pass) {
+        for (uint32_t i = 0; i < count; ++i) {
+            const auto* mh = reinterpret_cast<const mach_header_64*>(_dyld_get_image_header(i));
+            const char* imageName = _dyld_get_image_name(i);
+            if (!mh || mh->magic != MH_MAGIC_64 || !imageName)
                 continue;
-            if (strcmp(strtab + n.n_un.n_strx, wanted) == 0 && n.n_value != 0)
-                return reinterpret_cast<void*>(static_cast<uintptr_t>(n.n_value) + slide);
+
+            const bool preferredImage =
+                strstr(imageName, "client.dylib") ||
+                strstr(imageName, "steamclient") ||
+                strstr(imageName, "SteamClient");
+            if ((pass == 0 && !preferredImage) || (pass == 1 && preferredImage))
+                continue;
+
+            intptr_t slide = _dyld_get_image_vmaddr_slide(i);
+            const load_command* lc =
+                reinterpret_cast<const load_command*>(
+                    reinterpret_cast<const uint8_t*>(mh) + sizeof(mach_header_64));
+            const symtab_command* symtab = nullptr;
+            uintptr_t linkeditBase = 0;
+            for (uint32_t j = 0; j < mh->ncmds; ++j) {
+                if (lc->cmd == LC_SYMTAB)
+                    symtab = reinterpret_cast<const symtab_command*>(lc);
+                else if (lc->cmd == LC_SEGMENT_64) {
+                    const auto* seg = reinterpret_cast<const segment_command_64*>(lc);
+                    if (strcmp(seg->segname, SEG_LINKEDIT) == 0)
+                        linkeditBase = static_cast<uintptr_t>(seg->vmaddr) +
+                                       slide - static_cast<uintptr_t>(seg->fileoff);
+                }
+                lc = reinterpret_cast<const load_command*>(
+                    reinterpret_cast<const uint8_t*>(lc) + lc->cmdsize);
+            }
+            if (!symtab || !linkeditBase)
+                continue;
+
+            const auto* strtab = reinterpret_cast<const char*>(linkeditBase + symtab->stroff);
+            const auto* symbols = reinterpret_cast<const nlist_64*>(linkeditBase + symtab->symoff);
+            for (uint32_t j = 0; j < symtab->nsyms; ++j) {
+                const auto& n = symbols[j];
+                if ((n.n_type & N_TYPE) == N_UNDF || n.n_un.n_strx >= symtab->strsize)
+                    continue;
+
+                const char* symbolName = strtab + n.n_un.n_strx;
+                const bool nameMatches =
+                    strcmp(symbolName, wanted) == 0 ||
+                    (wanted[0] == '_' && symbolName[0] == '_' &&
+                     strcmp(symbolName + 1, wanted) == 0);
+                if (nameMatches && n.n_value != 0) {
+                    LOG("[Mac] protobuf helper symbol %s found in %s",
+                        wanted, imageName);
+                    return reinterpret_cast<void*>(
+                        static_cast<uintptr_t>(n.n_value) + slide);
+                }
+            }
         }
     }
     return nullptr;
