@@ -258,79 +258,23 @@ static bool HandleTypedServerMethod(
     void* t, const char* m, void* request, void* response, void* options)
 {
     auto orig = g_origServerMethodTyped.load(std::memory_order_acquire);
-    if (!orig || !m || !request || !response)
-        return orig ? orig(t, m, request, response, options) : false;
+    if (!orig)
+        return false;
 
-    const bool isCloud = strncmp(m, "Cloud.", 6) == 0;
-    const bool isGetUserStats = strcmp(m, StatsHandlers::RPC_GET_USER_STATS) == 0;
-    const bool isGetLastPlayed = strcmp(m, StatsHandlers::RPC_GET_LAST_PLAYED) == 0;
-    if (!isCloud && !isGetUserStats && !isGetLastPlayed)
-        return orig(t, m, request, response, options);
-
-    HookGuard guard;
-    if (!guard.active || g_shuttingDown.load(std::memory_order_acquire))
-        return orig(t, m, request, response, options);
-
-    EnsureInitialized();
-
-    std::vector<uint8_t> requestBytes;
-    if (!SerializeTypedMessage(request, requestBytes)) {
-        LOG("[Mac] typed RPC %s: failed to serialize request; passing through", m);
-        return orig(t, m, request, response, options);
+    if (m && (strncmp(m, "Cloud.", 6) == 0 ||
+              strcmp(m, StatsHandlers::RPC_GET_USER_STATS) == 0 ||
+              strcmp(m, StatsHandlers::RPC_GET_LAST_PLAYED) == 0)) {
+        LOG("[Mac] typed RPC observed: %s req=%p resp=%p options=%p",
+            m, request, response, options);
     }
 
-    auto fields = PB::Parse(requestBytes.data(), requestBytes.size());
-
-    if (isGetLastPlayed) {
-        if (!MetadataSync::syncPlaytime.load(std::memory_order_relaxed))
-            return orig(t, m, request, response, options);
-        auto res = StatsHandlers::HandleGetLastPlayedTimes(fields);
-        const auto& data = res.body.Data();
-        std::vector<uint8_t> body(data.begin(), data.end());
-        if (!ParseTypedMessage(response, body))
-            return orig(t, m, request, response, options);
-        LOG("[Mac] typed RPC handled: %s", m);
-        return true;
-    }
-
-    const uint32_t app = ExtractRequestAppId(m, fields);
-    if (!app || !CloudIntercept::IsNamespaceApp(app))
-        return orig(t, m, request, response, options);
-
-    if (isGetUserStats) {
-        if (!MetadataSync::syncAchievements.load(std::memory_order_relaxed))
-            return orig(t, m, request, response, options);
-        auto res = StatsHandlers::HandleGetUserStats(app, fields);
-        const auto& data = res.body.Data();
-        std::vector<uint8_t> body(data.begin(), data.end());
-        if (!ParseTypedMessage(response, body))
-            return orig(t, m, request, response, options);
-        LOG("[Mac] typed RPC handled: %s app=%u", m, app);
-        return true;
-    }
-
-    if (HttpServer::GetPort() == 0 && RequiresLocalHttp(m))
-        return orig(t, m, request, response, options);
-
-    const uint32_t account = CloudIntercept::GetAccountId();
-    if (!account)
-        return orig(t, m, request, response, options);
-
-    LocalStorage::InitApp(account, app);
-    LocalMetadataStore::InitApp(account, app);
-
-    auto res = Dispatch(m, app, fields);
-    if (!res.has_value() || res->eresult != CloudIntercept::kEResultOK)
-        return orig(t, m, request, response, options);
-
-    const auto& data = res->body.Data();
-    std::vector<uint8_t> body(data.begin(), data.end());
-    if (!ParseTypedMessage(response, body))
-        return orig(t, m, request, response, options);
-
-    LOG("[Mac] typed RPC handled: %s app=%u", m, app);
-    return true;
+    // Observation only: do not serialize or mutate the protobuf objects yet.
+    // The current Steam macOS protobuf ABI must be identified from live calls
+    // before we make this path authoritative.
+    return orig(t, m, request, response, options);
 }
+
+
 
 
 static std::optional<CloudIntercept::RpcResult> Dispatch(const char*m,uint32_t app,const std::vector<PB::Field>&f){
@@ -608,55 +552,14 @@ extern "C" bool hook_ServerNotificationTyped(
     void*t,const char*m,void*message,void*options)
 {
     auto orig=g_origServerNotificationTyped.load(std::memory_order_acquire);
-    if(!orig || !m || !message)
+    if(!orig || !m)
         return orig ? orig(t,m,message,options) : false;
 
-    if(strncmp(m,"Cloud.",6)!=0)
-        return orig(t,m,message,options);
+    if(strncmp(m,"Cloud.",6)==0)
+        LOG("[Mac] typed notification observed: %s msg=%p options=%p",
+            m, message, options);
 
-    HookGuard guard;
-    if(!guard.active || g_shuttingDown.load(std::memory_order_acquire))
-        return orig(t,m,message,options);
-
-    EnsureInitialized();
-
-    std::vector<uint8_t> bytes;
-    if(!SerializeTypedMessage(message, bytes))
-        return orig(t,m,message,options);
-
-    auto fields = PB::Parse(bytes.data(), bytes.size());
-    auto* appField = PB::FindField(fields, 1);
-    const uint32_t app = appField ? static_cast<uint32_t>(appField->varintVal) : 0;
-    if(!app || !CloudIntercept::IsNamespaceApp(app))
-        return orig(t,m,message,options);
-
-    if(strcmp(m,CloudIntercept::RPC_EXIT_SYNC)==0) {
-        uint64_t clientId=0;
-        bool uploadsCompleted=false, uploadsRequired=false;
-        if(auto* x=PB::FindField(fields,2)) clientId=x->varintVal;
-        if(auto* x=PB::FindField(fields,3)) uploadsCompleted=x->varintVal!=0;
-        if(auto* x=PB::FindField(fields,4)) uploadsRequired=x->varintVal!=0;
-
-        uint32_t account=CloudIntercept::GetAccountId();
-        if(account) {
-            PendingOpsJournal::RecordExitSyncState(account,app,uploadsCompleted,uploadsRequired,clientId);
-            std::thread([account,app,clientId]{
-                CloudStorage::InflightSyncScope guard;
-                if(!guard.entered) return;
-                CloudStorage::ReleaseCloudSession(account,app,clientId);
-            }).detach();
-        }
-        LOG("[Mac] typed notification handled: %s app=%u",m,app);
-        return orig(t,m,message,options);
-    }
-
-    if(strcmp(m,CloudIntercept::RPC_CONFLICT)==0) {
-        bool choseLocal=false;
-        if(auto* x=PB::FindField(fields,2)) choseLocal=x->varintVal!=0;
-        CloudIntercept::RecordConflictResolution(app,choseLocal);
-    }
-
-    return true;
+    return orig(t,m,message,options);
 }
 
 extern "C" bool hook_SyncSend2(
