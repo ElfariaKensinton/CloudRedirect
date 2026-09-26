@@ -171,6 +171,10 @@ void EndSession(uint32_t appId);
 PlaytimeData GetPlaytime(uint32_t appId);
 uint32_t GetDiskAccountId();
 
+// Enumerate all appIds currently known to the stats store, including cache and
+// account-cloud entries. Used by macOS target-all seeding/polling.
+std::vector<uint32_t> GetKnownApps();
+
 // Enumerate appIds that have any tracked playtime (for GetLastPlayedTimes).
 std::vector<uint32_t> GetTrackedApps();
 
