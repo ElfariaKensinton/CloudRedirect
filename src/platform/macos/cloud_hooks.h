@@ -4,6 +4,7 @@
 namespace CloudHooks {
 void Initialize();
 void SetOriginalRaw(void* origServerMethod, void* origServerNotification);
+bool TypedHooksAvailable();
 void SetOriginalTyped(void* origServerMethod, void* origServerNotification);
 void SetOriginalIsCloudEnabled(void* orig);
 void InstallGamesPlayedObserver(uintptr_t steamclientBase,size_t steamclientSize);
