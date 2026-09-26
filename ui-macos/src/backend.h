@@ -154,7 +154,6 @@ private:
     bool switchActiveProvider(const QString &provider);
     void handleMigrationLine(const QByteArray &line);
     void loadConfig();
-    void loadSLSsteamApps();
     void resolvePackageApps();
     void detectSteamPath();
     void scanStorageForApps();
@@ -182,8 +181,7 @@ private:
     QString m_syncFolderPath;
     bool m_providerAuthenticated = false;
     bool m_notificationsEnabled = true;
-    // Stats sync -- master switch for playtime sync (achievement schema is
-    // handled by SLSsteam, not by CR).
+    // Stats sync -- master switch for CloudRedirect playtime sync.
     bool m_statsSyncEnabled = true;
     bool m_syncAchievements = false;
     bool m_syncPlaytime = false;
