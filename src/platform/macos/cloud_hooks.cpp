@@ -41,15 +41,10 @@ using TypedServerNotificationFn=bool(*)(void*,const char*,void*,void*);
 using CloudEnabledFn=bool(*)(void*,unsigned int);
 using ParseFromArrayFn=bool(*)(void*,const void*,int);
 using SerializeToArrayFn=bool(*)(const void*,void*,int);
-using SerializePartialToArrayFn=bool(*)(const void*,void*,int);
 using ByteSizeFn=int(*)(const void*);
-using SerializeWithCachedSizesToArrayFn=unsigned char*(*)(const void*,unsigned char*);
-using ByteSizeLongFn=size_t(*)(const void*);
 
 static std::atomic<ParseFromArrayFn> g_parseFromArray{nullptr};
 static std::atomic<SerializeToArrayFn> g_serializeToArray{nullptr};
-static std::atomic<SerializePartialToArrayFn> g_serializePartialToArray{nullptr};
-static std::atomic<SerializeWithCachedSizesToArrayFn> g_serializeWithCachedSizesToArray{nullptr};
 
 static std::atomic<RawServerMethodFn> g_origServerMethod{nullptr};
 static std::atomic<RawServerNotificationFn> g_origServerNotification{nullptr};
@@ -166,13 +161,12 @@ static void* FindLoadedImageSymbol(const char* wanted)
 static void ResolveProtobufHelpers()
 {
     if (g_parseFromArray.load(std::memory_order_acquire) &&
-        (g_serializeToArray.load(std::memory_order_acquire) ||
-         g_serializePartialToArray.load(std::memory_order_acquire) ||
-         g_serializeWithCachedSizesToArray.load(std::memory_order_acquire)))
+        g_serializeToArray.load(std::memory_order_acquire))
         return;
 
-    // Steam's older protobuf ABI exports these MessageLite helpers from client.dylib.
-    // Keep both full and partial parse spellings because Steam has shipped both.
+    // Resolve the helpers without assuming a protobuf vtable layout.
+    // The typed hook only becomes active when Steam's loaded image exposes
+    // the direct SerializeToArray helper; otherwise requests pass through.
     void* parse = FindLoadedImageSymbol(
         "_ZN6google8protobuf11MessageLite14ParseFromArrayEPKvi");
     if (!parse)
@@ -181,21 +175,10 @@ static void ResolveProtobufHelpers()
 
     void* serialize = FindLoadedImageSymbol(
         "_ZNK6google8protobuf11MessageLite15SerializeToArrayEPvi");
-    void* serializePartial = FindLoadedImageSymbol(
-        "_ZNK6google8protobuf11MessageLite23SerializePartialToArrayEPvi");
-    void* serializeCached = FindLoadedImageSymbol(
-        "_ZNK6google8protobuf11MessageLite31SerializeWithCachedSizesToArrayEPh");
 
     g_parseFromArray.store(reinterpret_cast<ParseFromArrayFn>(parse), std::memory_order_release);
     g_serializeToArray.store(reinterpret_cast<SerializeToArrayFn>(serialize), std::memory_order_release);
-    g_serializePartialToArray.store(
-        reinterpret_cast<SerializePartialToArrayFn>(serializePartial),
-        std::memory_order_release);
-    g_serializeWithCachedSizesToArray.store(
-        reinterpret_cast<SerializeWithCachedSizesToArrayFn>(serializeCached),
-        std::memory_order_release);
-    LOG("[Mac] protobuf typed helpers parse=%p serialize=%p partial=%p cachedSerialize=%p",
-        parse, serialize, serializePartial, serializeCached);
+    LOG("[Mac] protobuf typed helpers parse=%p serialize=%p", parse, serialize);
 }
 
 static bool SerializeTypedMessage(const void* message, std::vector<uint8_t>& out)
@@ -204,68 +187,26 @@ static bool SerializeTypedMessage(const void* message, std::vector<uint8_t>& out
     ResolveProtobufHelpers();
 
     auto serialize = g_serializeToArray.load(std::memory_order_acquire);
-    auto serializePartial = g_serializePartialToArray.load(std::memory_order_acquire);
-    auto cachedSerialize = g_serializeWithCachedSizesToArray.load(std::memory_order_acquire);
+    if (!serialize)
+        return false;
+
     auto* vt = *reinterpret_cast<void***>(const_cast<void*>(message));
+    if (!vt)
+        return false;
 
-    if (serialize) {
-        auto byteSize = reinterpret_cast<ByteSizeFn>(vt[9]);
-        if (!byteSize)
-            return false;
-        const int size = byteSize(message);
-        if (size < 0 || size > 64 * 1024 * 1024)
-            return false;
-        out.resize(static_cast<size_t>(size));
-        if (size == 0)
-            return true;
-        return serialize(message, out.data(), size);
-    }
+    auto byteSize = reinterpret_cast<ByteSizeFn>(vt[9]);
+    if (!byteSize)
+        return false;
 
-    if (serializePartial) {
-        // SerializePartialToArray computes the message size itself and returns
-        // false when the supplied buffer is too small. Grow geometrically until
-        // serialization succeeds, without depending on a protobuf vtable slot.
-        constexpr size_t kInitialSize = 64 * 1024;
-        constexpr size_t kMaxSize = 64 * 1024 * 1024;
-        size_t size = kInitialSize;
-        out.resize(size);
-        while (true) {
-            if (serializePartial(message, out.data(), static_cast<int>(size))) {
-                return true;
-            }
-            if (size >= kMaxSize)
-                return false;
-            size *= 2;
-            if (size > kMaxSize)
-                size = kMaxSize;
-            out.resize(size);
-        }
-    }
+    const int size = byteSize(message);
+    if (size < 0 || size > 64 * 1024 * 1024)
+        return false;
 
-    // Older protobuf builds may only expose SerializeWithCachedSizesToArray.
-    // This fallback still uses the historical slot-9 size convention.
-    if (cachedSerialize) {
-        auto byteSizeLong = reinterpret_cast<ByteSizeLongFn>(vt[9]);
-        if (!byteSizeLong)
-            return false;
-        const size_t size = byteSizeLong(message);
-        if (size > 64 * 1024 * 1024)
-            return false;
-        out.resize(size);
-        if (size == 0)
-            return true;
-        auto* end = cachedSerialize(message, out.data());
-        if (!end)
-            return false;
-        if (end != out.data() + size) {
-            LOG("[Mac] protobuf cached serializer size mismatch: expected=%zu wrote=%td",
-                size, end - out.data());
-            return false;
-        }
+    out.resize(static_cast<size_t>(size));
+    if (size == 0)
         return true;
-    }
 
-    return false;
+    return serialize(message, out.data(), size);
 }
 
 static bool ParseTypedMessage(void* message, const std::vector<uint8_t>& body)
