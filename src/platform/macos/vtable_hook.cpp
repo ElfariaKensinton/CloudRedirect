@@ -73,9 +73,9 @@ void** VtableHook::FindVtableByRTTIName(const char* name,uintptr_t base,size_t s
 void** VtableHook::FindTransportVtable(uintptr_t b,size_t s){
     void** vt = FindVtableByRTTIName("30CClientUnifiedServiceTransport",b,s);
     if(!vt) return nullptr;
-    if(!InReadableRanges((uintptr_t)vt,8*sizeof(void*)))
+    if(!InReadableRanges((uintptr_t)vt,9*sizeof(void*)))
         return nullptr;
-    for(int slot : {2,3,4,5,6,7}){
+    for(int slot : {4,5,7,8}){
         uintptr_t fn=(uintptr_t)vt[slot];
         if(!InExecutableRanges(fn,1)){
             Log::Error("macOS transport vtable slot %d does not point into executable steamclient memory: %p",
@@ -113,67 +113,46 @@ bool VtableHook::InstallHooks(void**vt,VtableInfo&i){
     i.origSlot5=vt[5];
     i.origSlot6=vt[6];
     i.origSlot7=vt[7];
-    i.originalProtection=(int)QueryProtection(&vt[6]);
+    i.origSlot8=vt[8];
+    i.originalProtection=(int)QueryProtection(&vt[7]);
 
-    // Slots 4/5 are a typed protobuf ABI that has changed between Steam/macOS
-    // builds. Never patch them speculatively: on the current Steam build the
-    // serializer helper is absent, so leaving the original slots untouched is
-    // what keeps Steam on its native transport path.
-    // Steam's current macOS transport exposes the raw protobuf ABI at 6/7.
-    // Do not probe or patch the unstable typed ABI at 4/5 during normal startup.
-    // Keeping this opt-in/off prevents resolution against unrelated protobuf copies
-    // such as MIL.framework and removes an unnecessary ABI-dependent code path.
-    i.typedInstalled = false;
-    const size_t slotCount = i.typedInstalled ? 4*sizeof(void*) : 2*sizeof(void*);
-    void** firstSlot = i.typedInstalled ? &vt[4] : &vt[6];
+    // The current macOS build exposes the raw protobuf request/response path
+    // at slot 8 (SyncSend2) and the notification ABI at slot 7. Slots 4/5
+    // are a separate typed ABI; leave them completely native.
+    const size_t slotCount = 2*sizeof(void*);
+    void** firstSlot = &vt[7];
     if(!MakeWritable(firstSlot,slotCount))return false;
 
-    if(i.typedInstalled){
-        vt[4]=(void*)&hook_ServerMethodTyped;
-        vt[5]=(void*)&hook_ServerNotificationTyped;
-        CloudHooks::SetOriginalTyped(i.origSlot4,i.origSlot5);
-    }
-    vt[6]=(void*)&hook_ServerMethodRaw;
-    vt[7]=(void*)&hook_ServerNotificationRaw;
+    vt[7]=(void*)&hook_NotificationDirect;
+    vt[8]=(void*)&hook_SyncSend2;
 
     const vm_prot_t originalProt =
         (vm_prot_t)(i.originalProtection ? i.originalProtection : VM_PROT_READ);
     if(!RestoreProtection(firstSlot,slotCount,originalProt)){
         Log::Error("macOS transport hook: failed to restore vtable page protection; rolling back");
         if(MakeWritable(firstSlot,slotCount)){
-            if(i.typedInstalled){
-                vt[4]=i.origSlot4;
-                vt[5]=i.origSlot5;
-            }
-            vt[6]=i.origSlot6;
             vt[7]=i.origSlot7;
+            vt[8]=i.origSlot6;
             RestoreProtection(firstSlot,slotCount,originalProt);
         }
         i.vtable=nullptr;
-        i.typedInstalled=false;
+        i.origSlot8=nullptr;
         return false;
     }
 
-    if(i.typedInstalled)
-        Log::Info("macOS transport hooks installed (slots 4/5 typed + 6/7 raw)");
-    else
-        Log::Info("macOS transport hooks installed (slots 6/7 raw; slots 4/5 left native)");
-    CloudHooks::SetOriginalRaw(i.origSlot6,i.origSlot7);
+    Log::Info("macOS transport hooks installed (slot 7 notification + slot 8 SyncSend2; slots 4/5 native)");
+    CloudHooks::SetOriginalRaw(vt[8],vt[7]);
     return true;
 }
+
 bool VtableHook::InstallCloudEnabledHook(void**,CloudEnabledHookInfo&){return false;}
 void VtableHook::RemoveHooks(const VtableInfo&i){
     if(!i.vtable)return;
-    const size_t slotCount = i.typedInstalled ? 4*sizeof(void*) : 2*sizeof(void*);
-    void** firstSlot = i.typedInstalled ? &i.vtable[4] : &i.vtable[6];
-    if(MakeWritable(firstSlot,slotCount)){
-        if(i.typedInstalled){
-            i.vtable[4]=i.origSlot4;
-            i.vtable[5]=i.origSlot5;
-        }
-        i.vtable[6]=i.origSlot6;
+    void** firstSlot = &i.vtable[7];
+    if(MakeWritable(firstSlot,2*sizeof(void*))){
         i.vtable[7]=i.origSlot7;
-        RestoreProtection(firstSlot,slotCount,
+        i.vtable[8]=i.origSlot8;
+        RestoreProtection(firstSlot,2*sizeof(void*),
                           (vm_prot_t)(i.originalProtection?i.originalProtection:VM_PROT_READ));
     }
 }
