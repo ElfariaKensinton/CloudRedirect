@@ -119,7 +119,11 @@ bool VtableHook::InstallHooks(void**vt,VtableInfo&i){
     // builds. Never patch them speculatively: on the current Steam build the
     // serializer helper is absent, so leaving the original slots untouched is
     // what keeps Steam on its native transport path.
-    i.typedInstalled = CloudHooks::TypedHooksAvailable();
+    // Steam's current macOS transport exposes the raw protobuf ABI at 6/7.
+    // Do not probe or patch the unstable typed ABI at 4/5 during normal startup.
+    // Keeping this opt-in/off prevents resolution against unrelated protobuf copies
+    // such as MIL.framework and removes an unnecessary ABI-dependent code path.
+    i.typedInstalled = false;
     const size_t slotCount = i.typedInstalled ? 4*sizeof(void*) : 2*sizeof(void*);
     void** firstSlot = i.typedInstalled ? &vt[4] : &vt[6];
     if(!MakeWritable(firstSlot,slotCount))return false;
