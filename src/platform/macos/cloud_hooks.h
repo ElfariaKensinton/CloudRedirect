@@ -14,4 +14,5 @@ extern "C" bool hook_SyncSend2(void*,const char*,const void*,unsigned int,void*,
 extern "C" bool hook_ServerMethodTyped(void*,const char*,void*,void*,void*);
 extern "C" bool hook_ServerNotificationTyped(void*,const char*,void*,void*);
 extern "C" bool hook_NotificationDirect(void*,const char*,void*,int*);
+extern "C" bool hook_IsCloudEnabledForAccount(void*);
 extern "C" bool hook_IsCloudEnabledForApp(void*,unsigned int);
