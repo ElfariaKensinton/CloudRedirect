@@ -39,6 +39,13 @@ static void* InitThread(void*)
                 if(g_unloading.load(std::memory_order_acquire)) return nullptr;
                 if(VtableHook::InstallHooks(vt,g_transport)){
                     g_hooksInstalled.store(true, std::memory_order_release);
+                    if(void** remoteVt=VtableHook::FindRemoteStorageVtable(base,size)){
+                        if(!VtableHook::InstallCloudEnabledHook(remoteVt,g_cloudEnabled)){
+                            LOG("[Mac] RemoteStorage Cloud-enabled hook installation failed");
+                        }
+                    } else {
+                        LOG("[Mac] IClientRemoteStorage vtable not found; Cloud-enabled override not installed");
+                    }
                     CloudHooks::Initialize();
                     g_cloudInitialized.store(true, std::memory_order_release);
                     LOG("[Mac] CloudRedirect transport hook active");
