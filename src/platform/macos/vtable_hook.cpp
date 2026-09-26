@@ -114,39 +114,63 @@ bool VtableHook::InstallHooks(void**vt,VtableInfo&i){
     i.origSlot6=vt[6];
     i.origSlot7=vt[7];
     i.originalProtection=(int)QueryProtection(&vt[6]);
-    if(!MakeWritable(&vt[4],4*sizeof(void*)))return false;
-    vt[4]=(void*)&hook_ServerMethodTyped;
-    vt[5]=(void*)&hook_ServerNotificationTyped;
+
+    // Slots 4/5 are a typed protobuf ABI that has changed between Steam/macOS
+    // builds. Never patch them speculatively: on the current Steam build the
+    // serializer helper is absent, so leaving the original slots untouched is
+    // what keeps Steam on its native transport path.
+    i.typedInstalled = CloudHooks::TypedHooksAvailable();
+    const size_t slotCount = i.typedInstalled ? 4*sizeof(void*) : 2*sizeof(void*);
+    void** firstSlot = i.typedInstalled ? &vt[4] : &vt[6];
+    if(!MakeWritable(firstSlot,slotCount))return false;
+
+    if(i.typedInstalled){
+        vt[4]=(void*)&hook_ServerMethodTyped;
+        vt[5]=(void*)&hook_ServerNotificationTyped;
+        CloudHooks::SetOriginalTyped(i.origSlot4,i.origSlot5);
+    }
     vt[6]=(void*)&hook_ServerMethodRaw;
     vt[7]=(void*)&hook_ServerNotificationRaw;
+
     const vm_prot_t originalProt =
         (vm_prot_t)(i.originalProtection ? i.originalProtection : VM_PROT_READ);
-    if(!RestoreProtection(&vt[4],4*sizeof(void*),originalProt)){
+    if(!RestoreProtection(firstSlot,slotCount,originalProt)){
         Log::Error("macOS transport hook: failed to restore vtable page protection; rolling back");
-        if(MakeWritable(&vt[4],4*sizeof(void*))){
-            vt[4]=i.origSlot4;
-            vt[5]=i.origSlot5;
+        if(MakeWritable(firstSlot,slotCount)){
+            if(i.typedInstalled){
+                vt[4]=i.origSlot4;
+                vt[5]=i.origSlot5;
+            }
             vt[6]=i.origSlot6;
             vt[7]=i.origSlot7;
-            RestoreProtection(&vt[4],4*sizeof(void*),originalProt);
+            RestoreProtection(firstSlot,slotCount,originalProt);
         }
         i.vtable=nullptr;
+        i.typedInstalled=false;
         return false;
     }
-    Log::Info("macOS transport hooks installed (slots 4/5 typed probe + 6/7 raw)");
-    CloudHooks::SetOriginalTyped(i.origSlot4,i.origSlot5);
+
+    if(i.typedInstalled)
+        Log::Info("macOS transport hooks installed (slots 4/5 typed + 6/7 raw)");
+    else
+        Log::Info("macOS transport hooks installed (slots 6/7 raw; slots 4/5 left native)");
     CloudHooks::SetOriginalRaw(i.origSlot6,i.origSlot7);
     return true;
 }
 bool VtableHook::InstallCloudEnabledHook(void**,CloudEnabledHookInfo&){return false;}
 void VtableHook::RemoveHooks(const VtableInfo&i){
     if(!i.vtable)return;
-    if(MakeWritable(&i.vtable[4],4*sizeof(void*))){
-        i.vtable[4]=i.origSlot4;
-        i.vtable[5]=i.origSlot5;
+    const size_t slotCount = i.typedInstalled ? 4*sizeof(void*) : 2*sizeof(void*);
+    void** firstSlot = i.typedInstalled ? &i.vtable[4] : &i.vtable[6];
+    if(MakeWritable(firstSlot,slotCount)){
+        if(i.typedInstalled){
+            i.vtable[4]=i.origSlot4;
+            i.vtable[5]=i.origSlot5;
+        }
         i.vtable[6]=i.origSlot6;
         i.vtable[7]=i.origSlot7;
-        RestoreProtection(&i.vtable[4],4*sizeof(void*),(vm_prot_t)(i.originalProtection?i.originalProtection:VM_PROT_READ));
+        RestoreProtection(firstSlot,slotCount,
+                          (vm_prot_t)(i.originalProtection?i.originalProtection:VM_PROT_READ));
     }
 }
 void VtableHook::RemoveCloudEnabledHook(const CloudEnabledHookInfo&){}
