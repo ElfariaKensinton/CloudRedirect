@@ -683,6 +683,7 @@ extern "C" bool hook_ServerMethodRaw(
  if(!isCloud && !isGetUserStats && !isGetLastPlayed)
    return orig(t,m,buf,len,response,options);
 
+ LOG("[Mac] raw RPC observed: %s body=%u", m, len);
  EnsureInitialized();
  auto fields=PB::Parse((const uint8_t*)buf,len);
 
@@ -735,7 +736,8 @@ extern "C" bool hook_ServerMethodRaw(
          return origResult;
 
      SetRawResponse(response,fileRes->body);
-     LOG("[Mac] raw Cloud RPC handled: %s app=%u", m, app);
+     LOG("[Mac] raw Cloud RPC handled: %s app=%u eresult=%d bytes=%zu",
+         m, app, fileRes->eresult, fileRes->body.Size());
      return true;
  }
 
@@ -747,11 +749,18 @@ extern "C" bool hook_ServerMethodRaw(
  LocalMetadataStore::InitApp(account,app);
 
  auto res=Dispatch(m,app,fields);
- if(!res.has_value() || res->eresult!=CloudIntercept::kEResultOK)
+ if(!res.has_value()) {
+   LOG("[Mac] raw Cloud RPC unhandled: %s app=%u -> native", m, app);
    return orig(t,m,buf,len,response,options);
+ }
 
+ // The raw ABI has no Linux-style flags[] out parameter. The response body is
+ // therefore the only channel available here; recognized RPCs must stay on the
+ // local path even when the handler reports a non-OK EResult, otherwise Steam
+ // silently falls back to the real backend and surfaces a generic Cloud Error.
  SetRawResponse(response,res->body);
- LOG("[Mac] raw Cloud RPC handled: %s app=%u", m, app);
+ LOG("[Mac] raw Cloud RPC handled: %s app=%u eresult=%d bytes=%zu",
+     m, app, res->eresult, res->body.Size());
  return true;
 }
 
