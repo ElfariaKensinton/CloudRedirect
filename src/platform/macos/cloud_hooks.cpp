@@ -40,6 +40,8 @@ using TypedServerMethodFn=bool(*)(void*,const char*,void*,void*,void*);
 using TypedServerNotificationFn=bool(*)(void*,const char*,void*,void*);
 using CloudEnabledAccountFn=bool(*)(void*);
 using CloudEnabledFn=bool(*)(void*,unsigned int);
+using SetCloudEnabledAccountFn=void(*)(void*,bool);
+using SetCloudEnabledAppFn=void(*)(void*,unsigned int,bool);
 static std::atomic<CloudEnabledAccountFn> g_origCloudAccount{nullptr};
 using ParseFromArrayFn=bool(*)(void*,const void*,int);
 using SerializeToArrayFn=bool(*)(const void*,void*,int);
@@ -53,6 +55,8 @@ static std::atomic<RawServerNotificationFn> g_origServerNotification{nullptr};
 static std::atomic<TypedServerMethodFn> g_origServerMethodTyped{nullptr};
 static std::atomic<TypedServerNotificationFn> g_origServerNotificationTyped{nullptr};
 static std::atomic<CloudEnabledFn> g_origCloud{nullptr};
+static std::atomic<SetCloudEnabledAccountFn> g_origSetCloudAccount{nullptr};
+static std::atomic<SetCloudEnabledAppFn> g_origSetCloudApp{nullptr};
 static std::atomic<bool> g_initialized{false},g_shuttingDown{false};
 static std::atomic<int> g_hookRefCount{0};
 static std::once_flag g_initOnce;
@@ -489,6 +493,8 @@ void SetOriginalTyped(void* serverMethod,void* serverNotification){
 }
 void SetOriginalIsCloudEnabled(void*o){g_origCloud.store((CloudEnabledFn)o,std::memory_order_release);}
 void SetOriginalIsCloudEnabledAccount(void*o){g_origCloudAccount.store((CloudEnabledAccountFn)o,std::memory_order_release);}
+void SetOriginalSetCloudEnabledApp(void*o){g_origSetCloudApp.store((SetCloudEnabledAppFn)o,std::memory_order_release);}
+void SetOriginalSetCloudEnabledAccount(void*o){g_origSetCloudAccount.store((SetCloudEnabledAccountFn)o,std::memory_order_release);}
 void InstallGamesPlayedObserver(uintptr_t,size_t){
  LOG("[Mac] GamesPlayed observer unavailable on this build; playtime uses native stats reconciliation/poller");
 }
@@ -690,6 +696,16 @@ extern "C" bool hook_NotificationDirect(
  return orig(t,m,message,flags);
 }
 
+extern "C" void hook_SetCloudEnabledForApp(void*t,unsigned int app,bool enabled){
+ auto orig=g_origSetCloudApp.load(std::memory_order_acquire);
+ LOG("[Mac] SetCloudEnabledForApp app=%u enabled=%d -> forcing enabled",app,enabled?1:0);
+ if(orig) orig(t,app,true);
+}
+extern "C" void hook_SetCloudEnabledForAccount(void*t,bool enabled){
+ auto orig=g_origSetCloudAccount.load(std::memory_order_acquire);
+ LOG("[Mac] SetCloudEnabledForAccount enabled=%d -> forcing enabled",enabled?1:0);
+ if(orig) orig(t,true);
+}
 extern "C" bool hook_IsCloudEnabledForAccount(void*t){
  auto orig=g_origCloudAccount.load(std::memory_order_acquire);
  LOG("[Mac] IsCloudEnabledForAccount -> forced true");
