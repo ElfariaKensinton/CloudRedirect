@@ -22,3 +22,7 @@ extern "C" void hook_SetCloudEnabledForApp(void*,unsigned int,bool);
 extern "C" void hook_SetCloudEnabledForAccount(void*,bool);
 extern "C" bool hook_IsCloudEnabledForAccount(void*);
 extern "C" bool hook_IsCloudEnabledForApp(void*,unsigned int);
+extern "C" bool hook_SynchronizeApp(void*,unsigned int,bool,bool);
+extern "C" bool hook_IsAppSyncInProgress(void*,unsigned int);
+extern "C" void hook_RunAutoCloudOnAppLaunch(void*,unsigned int);
+extern "C" void hook_RunAutoCloudOnAppExit(void*,unsigned int);
