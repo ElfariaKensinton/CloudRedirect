@@ -29,12 +29,23 @@
 #include <chrono>
 #include <unordered_map>
 #include <cstdlib>
+#include <dlfcn.h>
+#include <mach-o/dyld.h>
+#include <mach-o/loader.h>
+#include <mach-o/nlist.h>
 
 using RawServerMethodFn=bool(*)(void*,const char*,const void*,unsigned int,std::string&,void*);
 using RawServerNotificationFn=bool(*)(void*,const char*,const void*,unsigned int,void*);
 using TypedServerMethodFn=bool(*)(void*,const char*,void*,void*,void*);
 using TypedServerNotificationFn=bool(*)(void*,const char*,void*,void*);
 using CloudEnabledFn=bool(*)(void*,unsigned int);
+using ParseFromArrayFn=bool(*)(void*,const void*,int);
+using SerializeToArrayFn=bool(*)(const void*,void*,int);
+using ByteSizeFn=int(*)(const void*);
+using SerializeWithCachedSizesToArrayFn=unsigned char*(*)(const void*,unsigned char*);
+
+static std::atomic<ParseFromArrayFn> g_parseFromArray{nullptr};
+static std::atomic<SerializeToArrayFn> g_serializeToArray{nullptr};
 
 static std::atomic<RawServerMethodFn> g_origServerMethod{nullptr};
 static std::atomic<RawServerNotificationFn> g_origServerNotification{nullptr};
@@ -73,6 +84,200 @@ static bool RequiresLocalHttp(const char* method)
    (strcmp(method,CloudIntercept::RPC_BEGIN_UPLOAD)==0 ||
     strcmp(method,CloudIntercept::RPC_FILE_DOWNLOAD)==0);
 }
+static void* FindLoadedImageSymbol(const char* wanted)
+{
+    if (void* p = dlsym(RTLD_DEFAULT, wanted))
+        return p;
+
+    const uint32_t count = _dyld_image_count();
+    for (uint32_t i = 0; i < count; ++i) {
+        const auto* mh = reinterpret_cast<const mach_header_64*>(_dyld_get_image_header(i));
+        const char* imageName = _dyld_get_image_name(i);
+        if (!mh || mh->magic != MH_MAGIC_64 || !imageName)
+            continue;
+        // Steam's protobuf implementation was observed in client.dylib; also
+        // accept steamclient images so this remains tolerant of Steam packaging changes.
+        if (!strstr(imageName, "client.dylib") &&
+            !strstr(imageName, "steamclient") &&
+            !strstr(imageName, "SteamClient"))
+            continue;
+
+        intptr_t slide = _dyld_get_image_vmaddr_slide(i);
+        const load_command* lc =
+            reinterpret_cast<const load_command*>(
+                reinterpret_cast<const uint8_t*>(mh) + sizeof(mach_header_64));
+        const symtab_command* symtab = nullptr;
+        uintptr_t linkeditBase = 0;
+        for (uint32_t j = 0; j < mh->ncmds; ++j) {
+            if (lc->cmd == LC_SYMTAB)
+                symtab = reinterpret_cast<const symtab_command*>(lc);
+            else if (lc->cmd == LC_SEGMENT_64) {
+                const auto* seg = reinterpret_cast<const segment_command_64*>(lc);
+                if (strcmp(seg->segname, SEG_LINKEDIT) == 0)
+                    linkeditBase = static_cast<uintptr_t>(seg->vmaddr) +
+                                   slide - static_cast<uintptr_t>(seg->fileoff);
+            }
+            lc = reinterpret_cast<const load_command*>(
+                reinterpret_cast<const uint8_t*>(lc) + lc->cmdsize);
+        }
+        if (!symtab || !linkeditBase)
+            continue;
+
+        const auto* strtab = reinterpret_cast<const char*>(linkeditBase + symtab->stroff);
+        const auto* symbols = reinterpret_cast<const nlist_64*>(linkeditBase + symtab->symoff);
+        for (uint32_t j = 0; j < symtab->nsyms; ++j) {
+            const auto& n = symbols[j];
+            if ((n.n_type & N_TYPE) == N_UNDF || n.n_strx >= symtab->strsize)
+                continue;
+            if (strcmp(strtab + n.n_strx, wanted) == 0 && n.n_value != 0)
+                return reinterpret_cast<void*>(static_cast<uintptr_t>(n.n_value) + slide);
+        }
+    }
+    return nullptr;
+}
+
+static void ResolveProtobufHelpers()
+{
+    if (g_parseFromArray.load(std::memory_order_acquire) &&
+        g_serializeToArray.load(std::memory_order_acquire))
+        return;
+
+    // Steam's older protobuf ABI exports these MessageLite helpers from client.dylib.
+    // Keep both full and partial parse spellings because Steam has shipped both.
+    void* parse = FindLoadedImageSymbol(
+        "_ZN6google8protobuf11MessageLite14ParseFromArrayEPKvi");
+    if (!parse)
+        parse = FindLoadedImageSymbol(
+            "_ZN6google8protobuf11MessageLite22ParsePartialFromArrayEPKvi");
+
+    void* serialize = FindLoadedImageSymbol(
+        "_ZNK6google8protobuf11MessageLite15SerializeToArrayEPvi");
+
+    g_parseFromArray.store(reinterpret_cast<ParseFromArrayFn>(parse), std::memory_order_release);
+    g_serializeToArray.store(reinterpret_cast<SerializeToArrayFn>(serialize), std::memory_order_release);
+    LOG("[Mac] protobuf typed helpers parse=%p serialize=%p", parse, serialize);
+}
+
+static bool SerializeTypedMessage(const void* message, std::vector<uint8_t>& out)
+{
+    if (!message) return false;
+    ResolveProtobufHelpers();
+
+    auto serialize = g_serializeToArray.load(std::memory_order_acquire);
+    if (serialize) {
+        auto* vt = *reinterpret_cast<void***>(const_cast<void*>(message));
+        // Old Steam protobuf Message vtable: slot 9 = ByteSize(), slot 11 =
+        // SerializeWithCachedSizesToArray(unsigned char*).
+        auto byteSize = reinterpret_cast<ByteSizeFn>(vt[9]);
+        const int size = byteSize(message);
+        if (size < 0 || size > 64 * 1024 * 1024) return false;
+        out.resize(static_cast<size_t>(size));
+        if (size == 0) return true;
+        if (!serialize(message, out.data(), size)) return false;
+        return true;
+    }
+
+    auto* vt = *reinterpret_cast<void***>(const_cast<void*>(message));
+    auto byteSize = reinterpret_cast<ByteSizeFn>(vt[9]);
+    auto cachedSerialize = reinterpret_cast<SerializeWithCachedSizesToArrayFn>(vt[11]);
+    if (!byteSize || !cachedSerialize) return false;
+    const int size = byteSize(message);
+    if (size < 0 || size > 64 * 1024 * 1024) return false;
+    out.resize(static_cast<size_t>(size));
+    if (size == 0) return true;
+    auto* end = cachedSerialize(message, out.data());
+    return end == out.data() + size;
+}
+
+static bool ParseTypedMessage(void* message, const std::vector<uint8_t>& body)
+{
+    if (!message) return false;
+    ResolveProtobufHelpers();
+    auto parse = g_parseFromArray.load(std::memory_order_acquire);
+    if (!parse) return false;
+    static const uint8_t kEmpty = 0;
+    const void* data = body.empty() ? static_cast<const void*>(&kEmpty) : body.data();
+    return parse(message, data, static_cast<int>(body.size()));
+}
+
+static bool HandleTypedServerMethod(
+    void* t, const char* m, void* request, void* response, void* options)
+{
+    auto orig = g_origServerMethodTyped.load(std::memory_order_acquire);
+    if (!orig || !m || !request || !response)
+        return orig ? orig(t, m, request, response, options) : false;
+
+    const bool isCloud = strncmp(m, "Cloud.", 6) == 0;
+    const bool isGetUserStats = strcmp(m, StatsHandlers::RPC_GET_USER_STATS) == 0;
+    const bool isGetLastPlayed = strcmp(m, StatsHandlers::RPC_GET_LAST_PLAYED) == 0;
+    if (!isCloud && !isGetUserStats && !isGetLastPlayed)
+        return orig(t, m, request, response, options);
+
+    HookGuard guard;
+    if (!guard.active || g_shuttingDown.load(std::memory_order_acquire))
+        return orig(t, m, request, response, options);
+
+    EnsureInitialized();
+
+    std::vector<uint8_t> requestBytes;
+    if (!SerializeTypedMessage(request, requestBytes)) {
+        LOG("[Mac] typed RPC %s: failed to serialize request; passing through", m);
+        return orig(t, m, request, response, options);
+    }
+
+    auto fields = PB::Parse(requestBytes.data(), requestBytes.size());
+
+    if (isGetLastPlayed) {
+        if (!MetadataSync::syncPlaytime.load(std::memory_order_relaxed))
+            return orig(t, m, request, response, options);
+        auto res = StatsHandlers::HandleGetLastPlayedTimes(fields);
+        const auto& data = res.body.Data();
+        std::vector<uint8_t> body(data.begin(), data.end());
+        if (!ParseTypedMessage(response, body))
+            return orig(t, m, request, response, options);
+        LOG("[Mac] typed RPC handled: %s", m);
+        return true;
+    }
+
+    const uint32_t app = ExtractRequestAppId(m, fields);
+    if (!app || !CloudIntercept::IsNamespaceApp(app))
+        return orig(t, m, request, response, options);
+
+    if (isGetUserStats) {
+        if (!MetadataSync::syncAchievements.load(std::memory_order_relaxed))
+            return orig(t, m, request, response, options);
+        auto res = StatsHandlers::HandleGetUserStats(app, fields);
+        const auto& data = res.body.Data();
+        std::vector<uint8_t> body(data.begin(), data.end());
+        if (!ParseTypedMessage(response, body))
+            return orig(t, m, request, response, options);
+        LOG("[Mac] typed RPC handled: %s app=%u", m, app);
+        return true;
+    }
+
+    if (HttpServer::GetPort() == 0 && RequiresLocalHttp(m))
+        return orig(t, m, request, response, options);
+
+    const uint32_t account = CloudIntercept::GetAccountId();
+    if (!account)
+        return orig(t, m, request, response, options);
+
+    LocalStorage::InitApp(account, app);
+    LocalMetadataStore::InitApp(account, app);
+
+    auto res = Dispatch(m, app, fields);
+    if (!res.has_value() || res->eresult != CloudIntercept::kEResultOK)
+        return orig(t, m, request, response, options);
+
+    const auto& data = res->body.Data();
+    std::vector<uint8_t> body(data.begin(), data.end());
+    if (!ParseTypedMessage(response, body))
+        return orig(t, m, request, response, options);
+
+    LOG("[Mac] typed RPC handled: %s app=%u", m, app);
+    return true;
+}
+
 
 static std::optional<CloudIntercept::RpcResult> Dispatch(const char*m,uint32_t app,const std::vector<PB::Field>&f){
  using namespace CloudIntercept;
@@ -333,24 +538,62 @@ static void SetRawResponse(std::string& response,const PB::Writer& body){
 extern "C" bool hook_ServerMethodTyped(
     void*t,const char*m,void*request,void*response,void*options)
 {
-    auto orig=g_origServerMethodTyped.load(std::memory_order_acquire);
-    if(!orig) return false;
-    if(m && (strncmp(m,"Cloud.",6)==0 ||
-             strcmp(m,StatsHandlers::RPC_GET_USER_STATS)==0 ||
-             strcmp(m,StatsHandlers::RPC_GET_LAST_PLAYED)==0)) {
-        LOG("[Mac] typed server method observed: %s req=%p resp=%p",m,request,response);
-    }
-    return orig(t,m,request,response,options);
+    return HandleTypedServerMethod(t, m, request, response, options);
 }
 
 extern "C" bool hook_ServerNotificationTyped(
     void*t,const char*m,void*message,void*options)
 {
     auto orig=g_origServerNotificationTyped.load(std::memory_order_acquire);
-    if(!orig) return false;
-    if(m && strncmp(m,"Cloud.",6)==0)
-        LOG("[Mac] typed server notification observed: %s msg=%p",m,message);
-    return orig(t,m,message,options);
+    if(!orig || !m || !message)
+        return orig ? orig(t,m,message,options) : false;
+
+    if(strncmp(m,"Cloud.",6)!=0)
+        return orig(t,m,message,options);
+
+    HookGuard guard;
+    if(!guard.active || g_shuttingDown.load(std::memory_order_acquire))
+        return orig(t,m,message,options);
+
+    EnsureInitialized();
+
+    std::vector<uint8_t> bytes;
+    if(!SerializeTypedMessage(message, bytes))
+        return orig(t,m,message,options);
+
+    auto fields = PB::Parse(bytes.data(), bytes.size());
+    auto* appField = PB::FindField(fields, 1);
+    const uint32_t app = appField ? static_cast<uint32_t>(appField->varintVal) : 0;
+    if(!app || !CloudIntercept::IsNamespaceApp(app))
+        return orig(t,m,message,options);
+
+    if(strcmp(m,CloudIntercept::RPC_EXIT_SYNC)==0) {
+        uint64_t clientId=0;
+        bool uploadsCompleted=false, uploadsRequired=false;
+        if(auto* x=PB::FindField(fields,2)) clientId=x->varintVal;
+        if(auto* x=PB::FindField(fields,3)) uploadsCompleted=x->varintVal!=0;
+        if(auto* x=PB::FindField(fields,4)) uploadsRequired=x->varintVal!=0;
+
+        uint32_t account=CloudIntercept::GetAccountId();
+        if(account) {
+            PendingOpsJournal::RecordExitSyncState(account,app,uploadsCompleted,uploadsRequired,clientId);
+            std::thread([account,app,clientId]{
+                CloudStorage::InflightSyncScope guard;
+                if(!guard.entered) return;
+                CloudStorage::ReleaseCloudSession(account,app,clientId);
+            }).detach();
+        }
+        LOG("[Mac] typed notification handled: %s app=%u",m,app);
+        return true;
+    }
+
+    if(strcmp(m,CloudIntercept::RPC_CONFLICT)==0) {
+        bool choseLocal=false;
+        if(auto* x=PB::FindField(fields,2)) choseLocal=x->varintVal!=0;
+        CloudIntercept::RecordConflictResolution(app,choseLocal);
+    }
+
+    return true;
 }
 
 extern "C" bool hook_ServerMethodRaw(
