@@ -114,15 +114,19 @@ bool VtableHook::InstallHooks(void**vt,VtableInfo&i){
     i.origSlot6=vt[6];
     i.origSlot7=vt[7];
     i.origSlot8=vt[8];
-    i.originalProtection=(int)QueryProtection(&vt[7]);
+    i.originalProtection=(int)QueryProtection(&vt[4]);
 
-    // The current macOS build exposes the raw protobuf request/response path
-    // at slot 8 (SyncSend2) and the notification ABI at slot 7. Slots 4/5
-    // are a separate typed ABI; leave them completely native.
-    const size_t slotCount = 2*sizeof(void*);
-    void** firstSlot = &vt[7];
+    // Current Steam macOS Cloud calls are suspected to use the typed protobuf
+    // ABI at slots 4/5. Enable those hooks in observation-only mode while also
+    // retaining the verified notification/SyncSend2 probes at 7/8.
+    i.typedInstalled = true;
+    const size_t slotCount = i.typedInstalled ? 5*sizeof(void*) : 2*sizeof(void*);
+    void** firstSlot = i.typedInstalled ? &vt[4] : &vt[7];
     if(!MakeWritable(firstSlot,slotCount))return false;
 
+    vt[4]=(void*)&hook_ServerMethodTyped;
+    vt[5]=(void*)&hook_ServerNotificationTyped;
+    // Preserve slot 6 exactly; it is not part of either observed ABI.
     vt[7]=(void*)&hook_NotificationDirect;
     vt[8]=(void*)&hook_SyncSend2;
 
@@ -131,16 +135,18 @@ bool VtableHook::InstallHooks(void**vt,VtableInfo&i){
     if(!RestoreProtection(firstSlot,slotCount,originalProt)){
         Log::Error("macOS transport hook: failed to restore vtable page protection; rolling back");
         if(MakeWritable(firstSlot,slotCount)){
+            vt[4]=i.origSlot4;
+            vt[5]=i.origSlot5;
             vt[7]=i.origSlot7;
             vt[8]=i.origSlot8;
             RestoreProtection(firstSlot,slotCount,originalProt);
         }
         i.vtable=nullptr;
-        i.origSlot8=nullptr;
         return false;
     }
 
-    Log::Info("macOS transport hooks installed (slot 7 notification + slot 8 SyncSend2; slots 4/5 native)");
+    Log::Info("macOS transport hooks installed (slots 4/5 typed observer + 7 notification + 8 SyncSend2)");
+    CloudHooks::SetOriginalTyped(i.origSlot4,i.origSlot5);
     CloudHooks::SetOriginalRaw(i.origSlot8,i.origSlot7);
     return true;
 }
