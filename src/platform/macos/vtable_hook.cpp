@@ -172,11 +172,11 @@ bool VtableHook::InstallCloudEnabledHook(void**vt,CloudEnabledHookInfo& info){
     info.setAccountSlotIndex=kSetAccountSlot;
 
     void** first=&vt[kAccountSlot];
+    const vm_prot_t prot=(vm_prot_t)(QueryProtection(first)?QueryProtection(first):VM_PROT_READ);
     if(!MakeWritable(first,3*sizeof(void*)))return false;
     vt[kAccountSlot]=(void*)&hook_IsCloudEnabledForAccount;
     vt[kAppSlot]=(void*)&hook_IsCloudEnabledForApp;
     vt[kSetAppSlot]=(void*)&hook_SetCloudEnabledForApp;
-    const vm_prot_t prot=(vm_prot_t)(QueryProtection(first)?QueryProtection(first):VM_PROT_READ);
     auto rollbackCloudState=[&](){
         if(MakeWritable(first,3*sizeof(void*))){
             vt[kAccountSlot]=info.origAccountSlot;
@@ -224,6 +224,7 @@ bool VtableHook::InstallCloudEnabledHook(void**vt,CloudEnabledHookInfo& info){
     info.runExitSlotIndex=kRunExitSlot;
 
     void** syncFirst=&vt[kSyncAppSlot];
+    const vm_prot_t syncProt=(vm_prot_t)(QueryProtection(syncFirst)?QueryProtection(syncFirst):VM_PROT_READ);
     if(!MakeWritable(syncFirst,4*sizeof(void*))){
         Log::Error("[Mac] unable to patch RemoteStorage sync lifecycle slots");
         rollbackCloudState();
@@ -234,7 +235,6 @@ bool VtableHook::InstallCloudEnabledHook(void**vt,CloudEnabledHookInfo& info){
     vt[kIsSyncSlot]=(void*)&hook_IsAppSyncInProgress;
     vt[kRunLaunchSlot]=(void*)&hook_RunAutoCloudOnAppLaunch;
     vt[kRunExitSlot]=(void*)&hook_RunAutoCloudOnAppExit;
-    const vm_prot_t syncProt=(vm_prot_t)(QueryProtection(syncFirst)?QueryProtection(syncFirst):VM_PROT_READ);
     auto rollbackSyncState=[&](){
         if(MakeWritable(syncFirst,4*sizeof(void*))){
             vt[kSyncAppSlot]=info.origSyncAppSlot;
@@ -263,6 +263,7 @@ bool VtableHook::InstallCloudEnabledHook(void**vt,CloudEnabledHookInfo& info){
               kSyncAppSlot,kRunExitSlot);
 
     void** setAccount=&vt[kSetAccountSlot];
+    const vm_prot_t setProt=(vm_prot_t)(QueryProtection(setAccount)?QueryProtection(setAccount):VM_PROT_READ);
     if(!MakeWritable(setAccount,sizeof(void*))){
         Log::Error("[Mac] unable to patch RemoteStorage SetCloudEnabledForAccount");
         rollbackSyncState();
@@ -275,7 +276,6 @@ bool VtableHook::InstallCloudEnabledHook(void**vt,CloudEnabledHookInfo& info){
         info={};
         return false;
     }
-    const vm_prot_t setProt=(vm_prot_t)(QueryProtection(setAccount)?QueryProtection(setAccount):VM_PROT_READ);
     info.origSetAccountSlot=vt[kSetAccountSlot];
     vt[kSetAccountSlot]=(void*)&hook_SetCloudEnabledForAccount;
     if(!RestoreProtection(setAccount,sizeof(void*),setProt)){
