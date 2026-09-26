@@ -42,6 +42,9 @@ using CloudEnabledAccountFn=bool(*)(void*);
 using CloudEnabledFn=bool(*)(void*,unsigned int);
 using SetCloudEnabledAccountFn=void(*)(void*,bool);
 using SetCloudEnabledAppFn=void(*)(void*,unsigned int,bool);
+using SynchronizeAppFn=bool(*)(void*,unsigned int,bool,bool);
+using IsAppSyncInProgressFn=bool(*)(void*,unsigned int);
+using RunAutoCloudFn=void(*)(void*,unsigned int);
 static std::atomic<CloudEnabledAccountFn> g_origCloudAccount{nullptr};
 using ParseFromArrayFn=bool(*)(void*,const void*,int);
 using SerializeToArrayFn=bool(*)(const void*,void*,int);
@@ -57,6 +60,10 @@ static std::atomic<TypedServerNotificationFn> g_origServerNotificationTyped{null
 static std::atomic<CloudEnabledFn> g_origCloud{nullptr};
 static std::atomic<SetCloudEnabledAccountFn> g_origSetCloudAccount{nullptr};
 static std::atomic<SetCloudEnabledAppFn> g_origSetCloudApp{nullptr};
+static std::atomic<SynchronizeAppFn> g_origSynchronizeApp{nullptr};
+static std::atomic<IsAppSyncInProgressFn> g_origIsAppSyncInProgress{nullptr};
+static std::atomic<RunAutoCloudFn> g_origRunAutoCloudLaunch{nullptr};
+static std::atomic<RunAutoCloudFn> g_origRunAutoCloudExit{nullptr};
 static std::atomic<bool> g_initialized{false},g_shuttingDown{false};
 static std::atomic<int> g_hookRefCount{0};
 static std::once_flag g_initOnce;
@@ -495,6 +502,12 @@ void SetOriginalIsCloudEnabled(void*o){g_origCloud.store((CloudEnabledFn)o,std::
 void SetOriginalIsCloudEnabledAccount(void*o){g_origCloudAccount.store((CloudEnabledAccountFn)o,std::memory_order_release);}
 void SetOriginalSetCloudEnabledApp(void*o){g_origSetCloudApp.store((SetCloudEnabledAppFn)o,std::memory_order_release);}
 void SetOriginalSetCloudEnabledAccount(void*o){g_origSetCloudAccount.store((SetCloudEnabledAccountFn)o,std::memory_order_release);}
+void SetOriginalRemoteStorageSync(void*syncApp,void*isSyncInProgress,void*runLaunch,void*runExit){
+ g_origSynchronizeApp.store((SynchronizeAppFn)syncApp,std::memory_order_release);
+ g_origIsAppSyncInProgress.store((IsAppSyncInProgressFn)isSyncInProgress,std::memory_order_release);
+ g_origRunAutoCloudLaunch.store((RunAutoCloudFn)runLaunch,std::memory_order_release);
+ g_origRunAutoCloudExit.store((RunAutoCloudFn)runExit,std::memory_order_release);
+}
 void InstallGamesPlayedObserver(uintptr_t,size_t){
  LOG("[Mac] GamesPlayed observer unavailable on this build; playtime uses native stats reconciliation/poller");
 }
@@ -694,6 +707,32 @@ extern "C" bool hook_NotificationDirect(
  // request/response ABI. Keep it native until a safe message serializer is
  // proven for this Steam build.
  return orig(t,m,message,flags);
+}
+
+extern "C" bool hook_SynchronizeApp(void*t,unsigned int app,bool syncClient,bool syncServer){
+ auto orig=g_origSynchronizeApp.load(std::memory_order_acquire);
+ LOG("[Mac] RemoteStorage SynchronizeApp app=%u client=%d server=%d",app,syncClient?1:0,syncServer?1:0);
+ fprintf(stderr,"[CloudRedirect] SynchronizeApp app=%u client=%d server=%d\\n",app,syncClient?1:0,syncServer?1:0);
+ return orig?orig(t,app,syncClient,syncServer):false;
+}
+extern "C" bool hook_IsAppSyncInProgress(void*t,unsigned int app){
+ auto orig=g_origIsAppSyncInProgress.load(std::memory_order_acquire);
+ const bool result=orig?orig(t,app):false;
+ LOG("[Mac] RemoteStorage IsAppSyncInProgress app=%u -> %d",app,result?1:0);
+ fprintf(stderr,"[CloudRedirect] IsAppSyncInProgress app=%u -> %d\\n",app,result?1:0);
+ return result;
+}
+extern "C" void hook_RunAutoCloudOnAppLaunch(void*t,unsigned int app){
+ auto orig=g_origRunAutoCloudLaunch.load(std::memory_order_acquire);
+ LOG("[Mac] RemoteStorage RunAutoCloudOnAppLaunch app=%u",app);
+ fprintf(stderr,"[CloudRedirect] RunAutoCloudOnAppLaunch app=%u\\n",app);
+ if(orig) orig(t,app);
+}
+extern "C" void hook_RunAutoCloudOnAppExit(void*t,unsigned int app){
+ auto orig=g_origRunAutoCloudExit.load(std::memory_order_acquire);
+ LOG("[Mac] RemoteStorage RunAutoCloudOnAppExit app=%u",app);
+ fprintf(stderr,"[CloudRedirect] RunAutoCloudOnAppExit app=%u\\n",app);
+ if(orig) orig(t,app);
 }
 
 extern "C" void hook_SetCloudEnabledForApp(void*t,unsigned int app,bool enabled){
