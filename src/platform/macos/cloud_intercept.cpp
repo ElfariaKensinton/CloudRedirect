@@ -186,11 +186,14 @@ void InitMac(){
         g_steamPath.c_str(), g_accountId.load(), g_namespaceApps.size());
 }
 bool IsNamespaceApp(uint32_t id){
-    // macOS mode applies CloudRedirect to every real AppID. The configured/
-    // discovered set is retained only as a known-app list for startup seeding.
-    return id != 0;
+    if (id == 0) return false;
+    std::lock_guard<std::mutex> lk(g_mutex);
+    return g_namespaceApps.count(id) > 0;
 }
-bool HasNamespaceApps(){ return true; }
+bool HasNamespaceApps(){
+    std::lock_guard<std::mutex> lk(g_mutex);
+    return !g_namespaceApps.empty();
+}
 std::vector<uint32_t> GetNamespaceApps(){std::lock_guard<std::mutex>lk(g_mutex);return std::vector<uint32_t>(g_namespaceApps.begin(),g_namespaceApps.end());}
 void RegisterNamespaceApp(uint32_t id){std::lock_guard<std::mutex>lk(g_mutex);if(id)g_namespaceApps.insert(id);}
 std::string GetSteamPath(){std::lock_guard<std::mutex>lk(g_mutex);return g_steamPath;}
