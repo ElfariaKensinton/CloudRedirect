@@ -108,6 +108,8 @@ void SetNamespacePredicate(NamespacePredicate pred);
 // Seed apps at startup (cloud blob + native UserGameStats + local JSON) so
 // GetLastPlayedTimes has data before launch. Requires a logged-in accountId.
 void SeedApps(const std::vector<uint32_t>& appIds);
+// Re-read native local playtime state for the current account. Safe to call periodically.
+void RefreshLocalPlaytime();
 
 // Block until SeedApps completes (or timeout expires). Returns true if seed
 // finished, false on timeout. Safe to call from any thread.

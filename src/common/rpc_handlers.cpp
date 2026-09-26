@@ -1532,14 +1532,22 @@ RpcResult HandleBeginFileUpload(uint32_t appId, const std::vector<PB::Field>& re
     PrepareBatchCanonicalTokens(accountId, appId);
     rootToken = CanonicalizeUploadRootToken(accountId, appId, cleanName, rootToken);
 
-    std::string urlPath = "/upload/" + std::to_string(accountId) + "/" + std::to_string(appId)
-        + "/" + HttpUtil::UrlEncode(cleanName, true);
+    std::string urlPath = "/upload/" + std::to_string(accountId) + "/" + std::to_string(appId);
+#ifdef __APPLE__
+    urlPath += "/" + HttpServer::GetAuthToken();
+#endif
+    urlPath += "/" + HttpUtil::UrlEncode(cleanName, true);
 
     TryCaptureRootToken(accountId, appId, rootToken);
     BatchTracker_RecordFilePlatforms(accountId, appId, cleanName, platformsToSync);
 
+#ifdef __APPLE__
+    LOG("[NS-UP] BeginFileUpload app=%u file=%s (clean=%s) size=%llu rawSize=%llu platforms=0x%08X -> %s",
+        appId, filename.c_str(), cleanName.c_str(), fileSize, rawFileSize, platformsToSync, urlHost.c_str());
+#else
     LOG("[NS-UP] BeginFileUpload app=%u file=%s (clean=%s) size=%llu rawSize=%llu platforms=0x%08X -> %s%s",
         appId, filename.c_str(), cleanName.c_str(), fileSize, rawFileSize, platformsToSync, urlHost.c_str(), urlPath.c_str());
+#endif
 
     uint64_t blockLen = fileSize > 0 ? fileSize : rawFileSize;
 
@@ -2210,8 +2218,11 @@ RpcResult HandleFileDownload(uint32_t appId, const std::vector<PB::Field>& reqBo
         LOG("[NS-DL] FileDownload app=%u REJECTED: empty filename after token strip", appId);
         return PB::Writer();
     }
-    std::string urlPath = "/download/" + std::to_string(accountId) + "/" + std::to_string(appId)
-        + "/" + HttpUtil::UrlEncode(cleanName, true);
+    std::string urlPath = "/download/" + std::to_string(accountId) + "/" + std::to_string(appId);
+#ifdef __APPLE__
+    urlPath += "/" + HttpServer::GetAuthToken();
+#endif
+    urlPath += "/" + HttpUtil::UrlEncode(cleanName, true);
 
     uint64_t fileSize = 0;    uint64_t timestamp = 0;
     std::vector<uint8_t> sha;
@@ -2252,8 +2263,13 @@ RpcResult HandleFileDownload(uint32_t appId, const std::vector<PB::Field>& reqBo
     if (sha.empty())
         fileSize = HttpServer::GetBlobSize(accountId, appId, cleanName);
 
+#ifdef __APPLE__
+    LOG("[NS-DL] FileDownload app=%u file=%s (clean=%s) size=%llu -> %s",
+        appId, filename.c_str(), cleanName.c_str(), fileSize, urlHost.c_str());
+#else
     LOG("[NS-DL] FileDownload app=%u file=%s (clean=%s) size=%llu -> %s%s",
         appId, filename.c_str(), cleanName.c_str(), fileSize, urlHost.c_str(), urlPath.c_str());
+#endif
 
     uint32_t clampedSize = ClampFileSizeToUint32(fileSize,
                                                  "FileDownload_Response.file_size",

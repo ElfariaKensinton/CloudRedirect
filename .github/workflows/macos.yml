@@ -1,0 +1,120 @@
+name: macOS Build
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: macos-build-${{ github.ref }}-${{ github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  macos:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            arch: arm64
+            asset: CloudRedirect-macos-arm64
+
+    runs-on: ${{ matrix.runner }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Cache Homebrew downloads
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Caches/Homebrew
+          key: macos-arm64-homebrew-${{ hashFiles('.github/workflows/macos.yml') }}
+          restore-keys: |
+            macos-arm64-homebrew-
+
+      - name: Cache ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Caches/ccache
+          key: macos-arm64-ccache-${{ github.sha }}
+          restore-keys: |
+            macos-arm64-ccache-
+
+      - name: Install build dependencies
+        shell: bash
+        run: |
+          brew update
+          brew install cmake ninja qt ccache
+          ccache --max-size=2G
+          ccache --set-config=cache_dir="$HOME/Library/Caches/ccache"
+          ccache --set-config=compiler_check=content
+
+      - name: Assert ARM64 runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$RUNNER_ARCH" = "ARM64"
+
+      - name: Configure
+        shell: bash
+        run: |
+          cmake -S . -B build-macos -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_OSX_ARCHITECTURES=${{ matrix.arch }} \
+            -DCMAKE_PREFIX_PATH="$(brew --prefix qt)" \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+            -DCR_GIT_SHA="${GITHUB_SHA}"
+
+      - name: Build
+        run: cmake --build build-macos --parallel 3
+
+      - name: Show compiler cache stats
+        run: ccache --show-stats
+
+      - name: Validate Mach-O outputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          file build-macos/cloud_redirect.dylib
+          file build-macos/cloud_redirect_cli
+          app="$(find build-macos -type d -name 'cloud-redirect-ui.app' -print -quit)"
+          test -n "$app"
+          file "$app/Contents/MacOS/cloud-redirect-ui"
+          test -f "$app/Contents/MacOS/cloud_redirect.dylib"
+          test -x "$app/Contents/MacOS/cloud_redirect_cli"
+
+      - name: Ad-hoc sign app bundle
+        shell: bash
+        run: |
+          app="$(find build-macos -type d -name 'cloud-redirect-ui.app' -print -quit)"
+          xattr -cr "$app"
+          codesign --force --deep --sign - "$app"
+
+      - name: Sign standalone binaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          codesign --force --sign - build-macos/cloud_redirect.dylib
+          codesign --force --sign - build-macos/cloud_redirect_cli
+
+      - name: Package
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf dist
+          mkdir -p dist
+          app="$(find build-macos -type d -name 'cloud-redirect-ui.app' -print -quit)"
+          ditto "$app" "dist/CloudRedirect.app"
+          cp build-macos/cloud_redirect.dylib dist/cloud_redirect.dylib
+          cp build-macos/cloud_redirect_cli dist/cloud_redirect_cli
+          ditto -c -k --sequesterRsrc --keepParent dist "${{ matrix.asset }}.zip"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: ${{ matrix.asset }}.zip
+          if-no-files-found: error

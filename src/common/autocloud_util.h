@@ -247,6 +247,8 @@ inline bool AutoCloudRuleMatchesPlatform(uint32_t mask, AutoCloudEffectivePlatfo
     if (platform == AutoCloudEffectivePlatform::Linux) return (mask & 8u) != 0;
 #ifdef _WIN32
     return (mask & 1u) != 0;  // Windows = bit 0
+#elif defined(__APPLE__)
+    return (mask & 2u) != 0;  // macOS = bit 1
 #else
     return (mask & 8u) != 0;  // Linux = bit 3
 #endif
@@ -370,7 +372,7 @@ inline bool IsWindowsRootOverrideActive(const AutoCloudRootOverrideNative& overr
 }
 
 inline bool IsLinuxRootOverrideActive(const AutoCloudRootOverrideNative& overrideRule) {
-#ifdef _WIN32
+#if defined(_WIN32) || defined(__APPLE__)
     return false;
 #else
     return IsLinuxOS(overrideRule.os);
@@ -417,11 +419,11 @@ inline void ApplyRootOverridesForPlatform(AutoCloudRuleNative& rule,
 
 #ifndef _WIN32
     if (platform != AutoCloudEffectivePlatform::Windows) {
-        std::string linuxRoot = AutoCloudPathResolver::WindowsRootToLinux(rule.root);
-        if (!linuxRoot.empty()) {
-            rule.root = linuxRoot;
+        std::string nativeRoot = AutoCloudPathResolver::WindowsRootToLinux(rule.root);
+        if (!nativeRoot.empty()) {
+            rule.root = nativeRoot;
         } else if (!rule.root.empty() && rule.root != "GameInstall" && rule.root[0] != '%') {
-            LOG("ApplyRootOverridesForCurrentOS: No Linux mapping for Windows root '%s', game may fail to sync",
+            LOG("ApplyRootOverridesForCurrentOS: no native mapping for Windows root '%s'",
                 rule.root.c_str());
         }
     }

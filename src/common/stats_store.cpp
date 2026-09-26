@@ -4,6 +4,7 @@
 #include "log.h"
 #include "file_util.h"
 #include "metadata_sync.h"
+#include "cloud_storage.h"
 
 #include <fstream>
 #include <sstream>
@@ -14,6 +15,10 @@
 #include <thread>
 #include <unordered_set>
 #include <condition_variable>
+
+#ifndef _WIN32
+#include <unistd.h>
+#endif
 
 namespace fs = std::filesystem;
 
@@ -50,6 +55,8 @@ static std::unordered_map<uint32_t, std::string> g_cloudBlobByApp;
 // Apps already merged with account blob this fetch cycle. g_mutex.
 static std::unordered_set<uint32_t> g_cloudBlobMerged;
 // True when the account blob needs re-upload. g_mutex.
+static void PushAccountBlobIfDirty();
+
 static bool g_accountBlobDirty = false;
 
 // Apps whose native import was attempted. g_mutex.
@@ -414,7 +421,7 @@ static uint32_t Crc32(const uint8_t* data, size_t len) {
 }
 
 // Seed playtime from localconfig.vdf (catches sessions without CR loaded).
-static void ReconcileLocalConfig(const std::string& cloudRoot, const std::string& steamPath) {
+static void ReconcileLocalConfig(const std::string& cloudRoot, const std::string& steamPath, bool pushCloud = false) {
     std::error_code ec;
     fs::path userdataDir = fs::path(steamPath) / "userdata";
     if (!fs::exists(userdataDir, ec)) return;
@@ -556,7 +563,7 @@ static void ReconcileLocalConfig(const std::string& cloudRoot, const std::string
 
             RecomputePlaytimeTotals(stats.playtime, /*allowShrink=*/true);
 
-            WriteAppStats(appId, stats, false, /*bypassDiskMerge=*/true);
+            WriteAppStats(appId, stats, pushCloud, /*bypassDiskMerge=*/true);
             reconciled++;
             return true;
         });
@@ -1616,6 +1623,8 @@ static void PushAccountBlobIfDirty() {
         g_accountBlobDirty = false;       // clear before releasing (re-set on later change)
     }
     std::thread([push = std::move(push), snapshot = std::move(snapshot), snapshotAccountId]() {
+        CloudStorage::InflightSyncScope guard;
+        if (!guard.entered) return;
         std::lock_guard<std::mutex> pushLock(g_pushInFlightMutex);
         {
     std::unique_lock<std::mutex> lock(g_mutex);
@@ -1979,6 +1988,16 @@ static void MigrateLegacyPlaytimeBins(const std::vector<uint32_t>& appIds) {
     }
 }
 
+void RefreshLocalPlaytime() {
+    {
+        std::lock_guard<std::mutex> lock(g_mutex);
+        if (g_diskAccountId == 0 || g_steamPath.empty() || !g_accountIdProvider)
+            return;
+        ReconcileLocalConfig(g_cloudRoot, g_steamPath, true);
+    }
+    PushAccountBlobIfDirty();
+}
+
 void SeedApps(const std::vector<uint32_t>& appIds) {
     // Wait for g_diskAccountId so disk I/O is account-scoped (bg thread, safe to block).
     if (g_diskAccountId == 0) {
@@ -2003,7 +2022,7 @@ void SeedApps(const std::vector<uint32_t>& appIds) {
     // Deferred from Init (where accountId is unknown) to here (post-login).
     {
         std::lock_guard<std::mutex> lock(g_mutex);
-        ReconcileLocalConfig(g_cloudRoot, g_steamPath);
+        ReconcileLocalConfig(g_cloudRoot, g_steamPath, false);
     }
     // One network read for the whole account, not one per app. GetOrCreate then
     // reads each app's entry from the cached blob (no further network).

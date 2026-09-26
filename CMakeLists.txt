@@ -4,6 +4,9 @@ project(CloudRedirect LANGUAGES C CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+if(APPLE)
+    set(CMAKE_OSX_DEPLOYMENT_TARGET "12.0" CACHE STRING "Minimum macOS version supported by Steam")
+endif()
 
 # ── Read version from Version.props ─────────────────────────────────────
 file(READ "${CMAKE_SOURCE_DIR}/Version.props" VERSION_PROPS_CONTENT)
@@ -112,6 +115,21 @@ if(WIN32)
         src/platform/win/token_store_win.cpp
         src/platform/win/platform_win.cpp
     )
+elseif(APPLE)
+    set(PLATFORM_SOURCES
+        src/platform/macos/init.cpp
+        src/platform/macos/vtable_hook.cpp
+        src/platform/macos/cloud_hooks.cpp
+        src/platform/macos/cloud_intercept.cpp
+        src/platform/macos/stats_hooks.cpp
+        src/platform/macos/http_transport_macos.cpp
+        src/platform/macos/token_store_macos.cpp
+        src/platform/macos/log.cpp
+        src/platform/macos/http_server.cpp
+        src/platform/macos/http_util.cpp
+        src/platform/macos/platform_macos.cpp
+        src/platform/macos/file_util.cpp
+    )
 else()
     set(PLATFORM_SOURCES
         src/platform/linux/init.cpp
@@ -172,6 +190,11 @@ if(WIN32)
     add_executable(cloud760_tool
         src/platform/win/cloud760_tool.cpp
     )
+elseif(APPLE)
+    target_include_directories(cloud_redirect PRIVATE src/platform/macos)
+    set_target_properties(cloud_redirect PROPERTIES PREFIX "" SUFFIX ".dylib" MACOSX_RPATH ON INSTALL_NAME_DIR "@rpath")
+    add_executable(cloud_redirect_cli src/platform/macos/cli_main.cpp)
+    add_dependencies(cloud_redirect_cli cloud_redirect)
 else()
     target_include_directories(cloud_redirect PRIVATE src/platform/linux)
     target_link_libraries(cloud_redirect PRIVATE dl pthread)
@@ -234,7 +257,7 @@ endif()
 
 enable_testing()
 
-if(EXISTS ${CMAKE_SOURCE_DIR}/tests/autocloud_native_tests.cpp)
+if(EXISTS ${CMAKE_SOURCE_DIR}/tests/autocloud_native_tests.cpp AND NOT APPLE)
     add_compile_definitions(CR_RELEASE_VERSION="${CR_RELEASE_VERSION}")
     if(WIN32)
         add_executable(autocloud_native_tests
@@ -440,6 +463,10 @@ if(EXISTS ${CMAKE_SOURCE_DIR}/tests/autocloud_native_tests.cpp)
         target_link_libraries(stats_store_tests PRIVATE pthread dl)
     endif()
     add_test(NAME stats_store_tests COMMAND stats_store_tests)
+endif()
+
+if(APPLE)
+    add_subdirectory(ui-macos)
 endif()
 
 # ── UI (Windows only) ───────────────────────────────────────────────────

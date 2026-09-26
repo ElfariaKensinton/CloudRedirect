@@ -44,6 +44,27 @@ inline constexpr Entry kEntries[] = {
     {"LinuxXdgDataHome",      "%LinuxXdgDataHome%",     15},
     {"LinuxXdgConfigHome",    "%LinuxXdgConfigHome%",   16},
 };
+#elif defined(__APPLE__)
+// macOS uses the native Mac roots from the shared Steam root enum.
+// The Mac root IDs correspond to the values used by Steam's Windows-side
+// enum for the same root names.
+//   6=MacHome, 7=MacAppSupport, 8=MacDocuments, 13=MacCaches.
+inline constexpr Entry kEntries[] = {
+    {"GameInstall",           "%GameInstall%",           1},
+    {"WinMyDocuments",        "%WinMyDocuments%",        2},
+    {"WinAppDataLocal",       "%WinAppDataLocal%",       3},
+    {"WinAppDataRoaming",     "%WinAppDataRoaming%",     4},
+    {"SteamUserBaseStorage",  "%SteamUserBaseStorage%",   5},
+    {"WinSavedGames",         "%WinSavedGames%",         9},
+    {"WinProgramData",        "%WinProgramData%",        10},
+    {"SteamCloudDocuments",   "%SteamCloudDocuments%",   11},
+    {"WinAppDataLocalLow",    "%WinAppDataLocalLow%",   12},
+    {"WindowsHome",           "%WindowsHome%",           18},
+    {"MacHome",               "%MacHome%",               6},
+    {"MacAppSupport",         "%MacAppSupport%",         7},
+    {"MacDocuments",          "%MacDocuments%",          8},
+    {"MacCaches",             "%MacCaches%",             13},
+};
 #else
 // Linux IDs from steamclient.so (+1 vs Windows):
 //   0=Invalid, 1=Default, 2=GameInstall, 3=WinMyDocuments,

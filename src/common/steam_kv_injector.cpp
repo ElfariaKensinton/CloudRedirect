@@ -11,7 +11,9 @@
 #include <windows.h>
 #else
 #include <dlfcn.h>
+#if defined(__linux__)
 #include <link.h>
+#endif
 #include <cstdio>
 #include <cstring>
 #endif
@@ -367,7 +369,7 @@ bool InjectSaveFiles(uint32_t appId, const std::vector<SaveFileRule>& rules) {
     return injected > 0;
 }
 
-#else // !_WIN32 -- Linux 32-bit steamclient.so
+#elif defined(__linux__) // Linux 32-bit steamclient.so
 
 // Linux steamclient.so -- runtime signature scanning only (no hardcoded fallback RVAs)
 
@@ -1019,13 +1021,45 @@ bool InjectSaveFiles(uint32_t appId, const std::vector<SaveFileRule>& rules) {
     return injected > 0;
 }
 
-#endif // _WIN32
+#elif defined(__APPLE__)
+
+void Configure(const ResolvedKvAddrs&) {}
+
+bool Init() {
+    return false;
+}
+
+bool IsReady() {
+    return false;
+}
+
+bool ReadAppQuota(uint32_t, uint64_t& outQuotaBytes, uint32_t& outMaxNumFiles) {
+    outQuotaBytes = 0;
+    outMaxNumFiles = 0;
+    return false;
+}
+
+bool InjectAppQuota(uint32_t, uint64_t, uint32_t) {
+    return false;
+}
+
+bool EnsureMaxNumFilesFloor(uint32_t, uint32_t, uint64_t) {
+    return false;
+}
+
+bool InjectSaveFiles(uint32_t, const std::vector<SaveFileRule>&) {
+    return false;
+}
+
+#endif // platform implementation
 
 void** GetEngineGlobalPtr() {
-#ifdef _WIN32
+#if defined(_WIN32)
     return nullptr; // Windows uses a different resolution path
-#else
+#elif defined(__linux__)
     return g_r.globalEnginePtr;
+#else
+    return nullptr;
 #endif
 }
 

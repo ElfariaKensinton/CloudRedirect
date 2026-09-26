@@ -270,6 +270,9 @@ static AutoCloudEffectivePlatform DetectEffectivePlatform(const std::string& ste
                                                           uint32_t accountId = 0) {
 #ifdef _WIN32
     return AutoCloudEffectivePlatform::Current;  // Windows is always Windows
+#elif defined(__APPLE__)
+    // Native macOS Steam does not use the Linux/Proton compatdata model.
+    return AutoCloudEffectivePlatform::Current;
 #else
     // Use known accountId or first numeric userdata folder.
     std::filesystem::path userdataPath = FileUtil::Utf8ToPath(steamPath) / "userdata";
@@ -765,6 +768,29 @@ ScanResult GetFileList(const std::string& steamPath,
             if (!tmp.empty()) windowsHome = tmp + "\\";
         }
     }
+#elif defined(__APPLE__)
+    auto getEnvStr = [](const char* name) -> std::string {
+        const char* val = getenv(name);
+        return val ? std::string(val) : std::string();
+    };
+    std::string home = getEnvStr("HOME");
+    if (home.empty()) {
+        struct passwd* pw = getpwuid(getuid());
+        if (pw) home = pw->pw_dir;
+    }
+
+    // Native macOS Steam games conventionally keep per-user application data
+    // under ~/Library/Application Support. Keep the existing Windows-root
+    // tokens so the cloud root IDs/wire format stay unchanged.
+    const std::string appSupport = home + "/Library/Application Support/";
+    std::string localLow = appSupport;
+    std::string localAppData = appSupport;
+    std::string roamingAppData = appSupport;
+    std::string myDocuments = home + "/Documents/";
+    std::string savedGames = appSupport;
+    std::string programData = appSupport;
+    std::string windowsHome = home + "/";
+
 #else
     // Linux: map Windows known folders to XDG/home equivalents
     auto getEnvStr = [](const char* name) -> std::string {
@@ -777,7 +803,6 @@ ScanResult GetFileList(const std::string& steamPath,
         if (pw) home = pw->pw_dir;
     }
 
-    // Map Windows known-folder roots to XDG/home equivalents
     std::string localLow = home + "/.local/share/";
     std::string localAppData = home + "/.local/share/";
     std::string roamingAppData = home + "/.config/";
@@ -786,7 +811,6 @@ ScanResult GetFileList(const std::string& steamPath,
     std::string programData = "/usr/share/";
     std::string windowsHome = home + "/";
 
-    // Proton: override Windows roots to compatdata prefix paths.
     std::string compatdataBase = steamPath + "/steamapps/compatdata/" + std::to_string(appId);
     std::string pfxBase = compatdataBase + "/pfx/drive_c/users/steamuser/";
     if (effectivePlatform == AutoCloudEffectivePlatform::Windows) {
@@ -823,6 +847,12 @@ ScanResult GetFileList(const std::string& steamPath,
     const auto& rWindowsHome   = rootFor("WindowsHome");
     const auto& rSteamBase     = rootFor("SteamUserBaseStorage");
     const auto& rCloudDocs     = rootFor("SteamCloudDocuments");
+#ifdef __APPLE__
+    const auto& rMacHome       = rootFor("MacHome");
+    const auto& rMacAppSupport = rootFor("MacAppSupport");
+    const auto& rMacDocuments  = rootFor("MacDocuments");
+    const auto& rMacCaches     = rootFor("MacCaches");
+#endif
 
 #ifdef _WIN32
     std::string steamBasePath = steamPath + "\\";
@@ -832,7 +862,7 @@ ScanResult GetFileList(const std::string& steamPath,
     std::string steamCloudDocsPath = BuildSteamCloudDocumentsPath(
         steamPath, myDocuments, accountId, appId);
 
-#ifndef _WIN32
+#if !defined(_WIN32) && !defined(__APPLE__)
     const auto& rLinuxHome     = rootFor("LinuxHome");
     const auto& rLinuxXdgData  = rootFor("LinuxXdgDataHome");
     const auto& rLinuxXdgCfg   = rootFor("LinuxXdgConfigHome");
@@ -866,7 +896,13 @@ ScanResult GetFileList(const std::string& steamPath,
         {rWindowsHome.bareName, rWindowsHome.token,     rWindowsHome.rootId, windowsHome},
         {rSteamBase.bareName,   rSteamBase.token,       rSteamBase.rootId,   steamBasePath},
         {rCloudDocs.bareName,   rCloudDocs.token,       rCloudDocs.rootId,   steamCloudDocsPath},
-#ifndef _WIN32
+#ifdef __APPLE__
+        {rMacHome.bareName,       rMacHome.token,       rMacHome.rootId,       home + "/"},
+        {rMacAppSupport.bareName, rMacAppSupport.token, rMacAppSupport.rootId, home + "/Library/Application Support/"},
+        {rMacDocuments.bareName,  rMacDocuments.token,  rMacDocuments.rootId,  home + "/Documents/"},
+        {rMacCaches.bareName,     rMacCaches.token,     rMacCaches.rootId,     home + "/Library/Caches/"},
+#endif
+#if !defined(_WIN32) && !defined(__APPLE__)
         {rLinuxHome.bareName,   rLinuxHome.token,       rLinuxHome.rootId,   linuxHome},
         {rLinuxXdgData.bareName, rLinuxXdgData.token,   rLinuxXdgData.rootId, linuxXdgDataHome},
         {rLinuxXdgCfg.bareName, rLinuxXdgCfg.token,     rLinuxXdgCfg.rootId, linuxXdgConfigHome},
@@ -1294,6 +1330,27 @@ std::unordered_map<std::string, std::string> GetRootTokenDirectories(
             if (!tmp.empty()) windowsHome = tmp + "\\";
         }
     }
+#elif defined(__APPLE__)
+    auto getEnvStr = [](const char* name) -> std::string {
+        const char* val = getenv(name);
+        return val ? std::string(val) : std::string();
+    };
+    std::string home = getEnvStr("HOME");
+    if (home.empty()) {
+        struct passwd* pw = getpwuid(getuid());
+        if (pw) home = pw->pw_dir;
+    }
+    const std::string appSupport = home + "/Library/Application Support/";
+    std::string localLow = appSupport;
+    std::string localAppData = appSupport;
+    std::string roamingAppData = appSupport;
+    std::string myDocuments = home + "/Documents/";
+    std::string savedGames = appSupport;
+    std::string programData = appSupport;
+    std::string windowsHome = home + "/";
+    std::string linuxHome;
+    std::string linuxXdgDataHome;
+    std::string linuxXdgConfigHome;
 #else
     auto getEnvStr = [](const char* name) -> std::string {
         const char* val = getenv(name);
@@ -1336,8 +1393,6 @@ std::unordered_map<std::string, std::string> GetRootTokenDirectories(
         std::string xdg = getEnvStr("XDG_CONFIG_HOME");
         linuxXdgConfigHome = xdg.empty() ? (home + "/.config/") : (xdg + "/");
     }
-    // Proton: suppress native Linux roots; token directories must not be advertised
-    // for Windows-effective apps since Steam only uses compatdata/pfx mappings.
     if (effectivePlatform == AutoCloudEffectivePlatform::Windows) {
         linuxHome.clear();
         linuxXdgDataHome.clear();
@@ -1371,6 +1426,13 @@ std::unordered_map<std::string, std::string> GetRootTokenDirectories(
         result["%WinProgramData%"] = programData;
     if (!windowsHome.empty())
         result["%WindowsHome%"] = windowsHome;
+
+#ifdef __APPLE__
+    result["%MacHome%"] = home + "/";
+    result["%MacAppSupport%"] = home + "/Library/Application Support/";
+    result["%MacDocuments%"] = home + "/Documents/";
+    result["%MacCaches%"] = home + "/Library/Caches/";
+#endif
 
 #ifdef _WIN32
     result["%SteamUserBaseStorage%"] = steamPath + "\\";
