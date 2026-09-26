@@ -4,10 +4,8 @@
 namespace VtableHook {
 struct VtableInfo {
     void** vtable=nullptr;
-    void* origSlot4=nullptr;
-    void* origSlot5=nullptr;
+    void* origSlot6=nullptr;
     void* origSlot7=nullptr;
-    void* origSlot8=nullptr;
     int originalProtection=0;
 };
 struct CloudEnabledHookInfo { void** vtable=nullptr; void* origSlot=nullptr; size_t slotIndex=SIZE_MAX; };

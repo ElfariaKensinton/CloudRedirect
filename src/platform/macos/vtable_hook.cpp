@@ -73,9 +73,9 @@ void** VtableHook::FindVtableByRTTIName(const char* name,uintptr_t base,size_t s
 void** VtableHook::FindTransportVtable(uintptr_t b,size_t s){
     void** vt = FindVtableByRTTIName("30CClientUnifiedServiceTransport",b,s);
     if(!vt) return nullptr;
-    if(!InReadableRanges((uintptr_t)vt,9*sizeof(void*)))
+    if(!InReadableRanges((uintptr_t)vt,8*sizeof(void*)))
         return nullptr;
-    for(int slot : {4,5,7,8}){
+    for(int slot : {2,3,4,5,6,7}){
         uintptr_t fn=(uintptr_t)vt[slot];
         if(!InExecutableRanges(fn,1)){
             Log::Error("macOS transport vtable slot %d does not point into executable steamclient memory: %p",
@@ -109,43 +109,35 @@ static bool RestoreProtection(void*addr,size_t len,vm_prot_t prot){
 bool VtableHook::InstallHooks(void**vt,VtableInfo&i){
     if(!vt)return false;
     i.vtable=vt;
-    i.origSlot4=vt[4];
-    i.origSlot5=vt[5];
+    i.origSlot6=vt[6];
     i.origSlot7=vt[7];
-    i.origSlot8=vt[8];
-    i.originalProtection=(int)QueryProtection(&vt[4]);
-    if(!MakeWritable(&vt[4],5*sizeof(void*)))return false;
-    vt[4]=(void*)&hook_ServiceMethodDirect;
-    vt[5]=(void*)&hook_BYieldingSend;
-    vt[7]=(void*)&hook_NotificationDirect;
-    vt[8]=(void*)&hook_SyncSend2;
+    i.originalProtection=(int)QueryProtection(&vt[6]);
+    if(!MakeWritable(&vt[6],2*sizeof(void*)))return false;
+    vt[6]=(void*)&hook_ServerMethodRaw;
+    vt[7]=(void*)&hook_ServerNotificationRaw;
     const vm_prot_t originalProt =
         (vm_prot_t)(i.originalProtection ? i.originalProtection : VM_PROT_READ);
-    if(!RestoreProtection(&vt[4],5*sizeof(void*),originalProt)){
+    if(!RestoreProtection(&vt[6],2*sizeof(void*),originalProt)){
         Log::Error("macOS transport hook: failed to restore vtable page protection; rolling back");
-        if(MakeWritable(&vt[4],5*sizeof(void*))){
-            vt[4]=i.origSlot4;
-            vt[5]=i.origSlot5;
+        if(MakeWritable(&vt[6],2*sizeof(void*))){
+            vt[6]=i.origSlot6;
             vt[7]=i.origSlot7;
-            vt[8]=i.origSlot8;
-            RestoreProtection(&vt[4],5*sizeof(void*),originalProt);
+            RestoreProtection(&vt[6],2*sizeof(void*),originalProt);
         }
         i.vtable=nullptr;
         return false;
     }
-    Log::Info("macOS transport hooks installed (slots 4/5/7/8)");
-    CloudHooks::SetOriginals(i.origSlot4,i.origSlot5,i.origSlot7,i.origSlot8);
+    Log::Info("macOS transport hooks installed (slots 6/7 raw protobuf)");
+    CloudHooks::SetOriginalRaw(i.origSlot6,i.origSlot7);
     return true;
 }
 bool VtableHook::InstallCloudEnabledHook(void**,CloudEnabledHookInfo&){return false;}
 void VtableHook::RemoveHooks(const VtableInfo&i){
     if(!i.vtable)return;
-    if(MakeWritable(&i.vtable[4],5*sizeof(void*))){
-        i.vtable[4]=i.origSlot4;
-        i.vtable[5]=i.origSlot5;
+    if(MakeWritable(&i.vtable[6],2*sizeof(void*))){
+        i.vtable[6]=i.origSlot6;
         i.vtable[7]=i.origSlot7;
-        i.vtable[8]=i.origSlot8;
-        RestoreProtection(&i.vtable[4],5*sizeof(void*),(vm_prot_t)(i.originalProtection?i.originalProtection:VM_PROT_READ));
+        RestoreProtection(&i.vtable[6],2*sizeof(void*),(vm_prot_t)(i.originalProtection?i.originalProtection:VM_PROT_READ));
     }
 }
 void VtableHook::RemoveCloudEnabledHook(const CloudEnabledHookInfo&){}

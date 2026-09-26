@@ -39,7 +39,6 @@ static void* InitThread(void*)
                 if(g_unloading.load(std::memory_order_acquire)) return nullptr;
                 if(VtableHook::InstallHooks(vt,g_transport)){
                     g_hooksInstalled.store(true, std::memory_order_release);
-                    CloudHooks::ResolveProtobufHelpers((void*)base,size);
                     CloudHooks::Initialize();
                     g_cloudInitialized.store(true, std::memory_order_release);
                     LOG("[Mac] CloudRedirect transport hook active");
