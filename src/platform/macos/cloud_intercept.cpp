@@ -25,30 +25,122 @@ static bool DigitsOnly(const std::string& s) {
 static void LoadSlssteamAdditionalApps(const std::string& path) {
     std::ifstream f(path);
     if (!f) return;
-    std::string line;
+
     bool inAdditional = false;
-    while (std::getline(f, line)) {
-        size_t first = line.find_first_not_of(" \t");
-        const std::string trimmed = first == std::string::npos ? std::string() : line.substr(first);
-        if (first == 0 && !trimmed.empty() &&
-            trimmed != "AdditionalApps:" &&
-            trimmed.rfind("AdditionalApps:", 0) != 0) {
-            inAdditional = false;
+    bool disableCloudSeen = false;
+    bool disableCloud = false;
+    std::vector<uint32_t> parsedApps;
+    std::string line;
+
+    auto trim = [](std::string value) {
+        const size_t first = value.find_first_not_of(" \t\r\n");
+        if (first == std::string::npos) return std::string();
+        const size_t last = value.find_last_not_of(" \t\r\n");
+        return value.substr(first, last - first + 1);
+    };
+
+    auto parseBool = [](const std::string& value, bool* out) {
+        if (value == "yes" || value == "true" || value == "1" ||
+            value == "Yes" || value == "True" || value == "TRUE") {
+            *out = true;
+            return true;
         }
-        if (trimmed == "AdditionalApps:" || trimmed.rfind("AdditionalApps:", 0) == 0) {
-            inAdditional = true;
+        if (value == "no" || value == "false" || value == "0" ||
+            value == "No" || value == "False" || value == "FALSE") {
+            *out = false;
+            return true;
+        }
+        return false;
+    };
+
+    auto appendApp = [&](const std::string& text) {
+        std::string value = trim(text);
+        const size_t comment = value.find('#');
+        if (comment != std::string::npos)
+            value = trim(value.substr(0, comment));
+        if (!DigitsOnly(value)) return;
+        try {
+            const uint32_t appId = static_cast<uint32_t>(std::stoul(value));
+            if (appId != 0)
+                parsedApps.push_back(appId);
+        } catch (...) {
+        }
+    };
+
+    while (std::getline(f, line)) {
+        const size_t first = line.find_first_not_of(" \t");
+        if (first == std::string::npos) continue;
+
+        const std::string trimmed = trim(line);
+        if (trimmed.empty() || trimmed[0] == '#') continue;
+
+        // Handle list items before top-level key detection. SLSsteam's YAML
+        // commonly uses unindented "- 123" entries under AdditionalApps.
+        if (trimmed.rfind("- ", 0) == 0) {
+            if (inAdditional)
+                appendApp(trimmed.substr(2));
             continue;
         }
-        if (!inAdditional) continue;
-        if (trimmed.rfind("- ", 0) != 0) continue;
-        std::string value = trimmed.substr(2);
+
+        const size_t colon = trimmed.find(':');
+        if (colon == std::string::npos) {
+            inAdditional = false;
+            continue;
+        }
+
+        const std::string key = trim(trimmed.substr(0, colon));
+        std::string value = trim(trimmed.substr(colon + 1));
         const size_t comment = value.find('#');
-        if (comment != std::string::npos) value.resize(comment);
-        while (!value.empty() && std::isspace(static_cast<unsigned char>(value.back()))) value.pop_back();
-        while (!value.empty() && std::isspace(static_cast<unsigned char>(value.front()))) value.erase(value.begin());
-        if (!DigitsOnly(value)) continue;
-        try { g_namespaceApps.insert(static_cast<uint32_t>(std::stoul(value))); } catch (...) {}
+        if (comment != std::string::npos)
+            value = trim(value.substr(0, comment));
+
+        if (key == "DisableCloud") {
+            bool parsed = false;
+            if (parseBool(value, &parsed)) {
+                disableCloudSeen = true;
+                disableCloud = parsed;
+            }
+            inAdditional = false;
+            continue;
+        }
+
+        if (key == "AdditionalApps") {
+            inAdditional = true;
+
+            // Also accept AdditionalApps: [123, 456].
+            if (!value.empty() && value.front() == '[' && value.back() == ']') {
+                const std::string body = value.substr(1, value.size() - 2);
+                std::string cur;
+                for (size_t i = 0; i <= body.size(); ++i) {
+                    const char c = (i < body.size()) ? body[i] : ',';
+                    if (c >= '0' && c <= '9') {
+                        cur += c;
+                    } else if (!cur.empty()) {
+                        appendApp(cur);
+                        cur.clear();
+                    }
+                }
+                inAdditional = false;
+            }
+            continue;
+        }
+
+        if (first == 0)
+            inAdditional = false;
     }
+
+    size_t added = 0;
+    if (disableCloudSeen && !disableCloud) {
+        for (uint32_t appId : parsedApps) {
+            if (g_namespaceApps.insert(appId).second)
+                ++added;
+        }
+    }
+
+    LOG("[Mac] SLSsteam config: %s; DisableCloud=%s; AdditionalApps parsed=%zu added=%zu",
+        path.c_str(),
+        disableCloudSeen ? (disableCloud ? "yes" : "no") : "missing",
+        parsedApps.size(), added);
 }
 
 static void LoadApps(const std::string& path){
