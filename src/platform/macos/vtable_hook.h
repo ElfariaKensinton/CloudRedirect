@@ -8,6 +8,7 @@ struct VtableInfo {
     void* origSlot5=nullptr;
     void* origSlot6=nullptr;
     void* origSlot7=nullptr;
+    bool typedInstalled=false;
     int originalProtection=0;
 };
 struct CloudEnabledHookInfo { void** vtable=nullptr; void* origSlot=nullptr; size_t slotIndex=SIZE_MAX; };
