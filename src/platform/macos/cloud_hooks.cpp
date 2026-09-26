@@ -84,6 +84,9 @@ static bool RequiresLocalHttp(const char* method)
    (strcmp(method,CloudIntercept::RPC_BEGIN_UPLOAD)==0 ||
     strcmp(method,CloudIntercept::RPC_FILE_DOWNLOAD)==0);
 }
+
+static void EnsureInitialized();
+static uint32_t ExtractRequestAppId(const char* method,const std::vector<PB::Field>& fields);
 static void* FindLoadedImageSymbol(const char* wanted)
 {
     if (void* p = dlsym(RTLD_DEFAULT, wanted))
