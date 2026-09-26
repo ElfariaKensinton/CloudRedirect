@@ -109,35 +109,44 @@ static bool RestoreProtection(void*addr,size_t len,vm_prot_t prot){
 bool VtableHook::InstallHooks(void**vt,VtableInfo&i){
     if(!vt)return false;
     i.vtable=vt;
+    i.origSlot4=vt[4];
+    i.origSlot5=vt[5];
     i.origSlot6=vt[6];
     i.origSlot7=vt[7];
     i.originalProtection=(int)QueryProtection(&vt[6]);
-    if(!MakeWritable(&vt[6],2*sizeof(void*)))return false;
+    if(!MakeWritable(&vt[4],4*sizeof(void*)))return false;
+    vt[4]=(void*)&hook_ServerMethodTyped;
+    vt[5]=(void*)&hook_ServerNotificationTyped;
     vt[6]=(void*)&hook_ServerMethodRaw;
     vt[7]=(void*)&hook_ServerNotificationRaw;
     const vm_prot_t originalProt =
         (vm_prot_t)(i.originalProtection ? i.originalProtection : VM_PROT_READ);
-    if(!RestoreProtection(&vt[6],2*sizeof(void*),originalProt)){
+    if(!RestoreProtection(&vt[4],4*sizeof(void*),originalProt)){
         Log::Error("macOS transport hook: failed to restore vtable page protection; rolling back");
-        if(MakeWritable(&vt[6],2*sizeof(void*))){
+        if(MakeWritable(&vt[4],4*sizeof(void*))){
+            vt[4]=i.origSlot4;
+            vt[5]=i.origSlot5;
             vt[6]=i.origSlot6;
             vt[7]=i.origSlot7;
-            RestoreProtection(&vt[6],2*sizeof(void*),originalProt);
+            RestoreProtection(&vt[4],4*sizeof(void*),originalProt);
         }
         i.vtable=nullptr;
         return false;
     }
-    Log::Info("macOS transport hooks installed (slots 6/7 raw protobuf)");
+    Log::Info("macOS transport hooks installed (slots 4/5 typed probe + 6/7 raw)");
+    CloudHooks::SetOriginalTyped(i.origSlot4,i.origSlot5);
     CloudHooks::SetOriginalRaw(i.origSlot6,i.origSlot7);
     return true;
 }
 bool VtableHook::InstallCloudEnabledHook(void**,CloudEnabledHookInfo&){return false;}
 void VtableHook::RemoveHooks(const VtableInfo&i){
     if(!i.vtable)return;
-    if(MakeWritable(&i.vtable[6],2*sizeof(void*))){
+    if(MakeWritable(&i.vtable[4],4*sizeof(void*))){
+        i.vtable[4]=i.origSlot4;
+        i.vtable[5]=i.origSlot5;
         i.vtable[6]=i.origSlot6;
         i.vtable[7]=i.origSlot7;
-        RestoreProtection(&i.vtable[6],2*sizeof(void*),(vm_prot_t)(i.originalProtection?i.originalProtection:VM_PROT_READ));
+        RestoreProtection(&i.vtable[4],4*sizeof(void*),(vm_prot_t)(i.originalProtection?i.originalProtection:VM_PROT_READ));
     }
 }
 void VtableHook::RemoveCloudEnabledHook(const CloudEnabledHookInfo&){}
