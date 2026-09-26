@@ -34,8 +34,8 @@
 #include <mach-o/loader.h>
 #include <mach-o/nlist.h>
 
-using RawServerMethodFn=bool(*)(void*,const char*,const void*,unsigned int,std::string&,void*);
-using RawServerNotificationFn=bool(*)(void*,const char*,const void*,unsigned int,void*);
+using RawServerMethodFn=bool(*)(void*,const char*,const void*,unsigned int,void*,int*);
+using RawServerNotificationFn=bool(*)(void*,const char*,void*,int*);
 using TypedServerMethodFn=bool(*)(void*,const char*,void*,void*,void*);
 using TypedServerNotificationFn=bool(*)(void*,const char*,void*,void*);
 using CloudEnabledFn=bool(*)(void*,unsigned int);
@@ -587,12 +587,6 @@ static uint32_t ExtractRequestAppId(const char* method,const std::vector<PB::Fie
  return CloudRpcUtils::ExtractAppId(method,fields);
 }
 
-static void SetRawResponse(std::string& response,const PB::Writer& body){
- const auto& data=body.Data();
- if(data.empty()) response.clear();
- else response.assign(reinterpret_cast<const char*>(data.data()),data.size());
-}
-
 static void MergeRawLastPlayedResponse(std::string& response,const PB::Writer& body)
 {
     const auto& data = body.Data();
@@ -665,8 +659,8 @@ extern "C" bool hook_ServerNotificationTyped(
     return true;
 }
 
-extern "C" bool hook_ServerMethodRaw(
-    void*t,const char*m,const void*buf,unsigned int len,std::string&response,void*options)
+extern "C" bool hook_SyncSend2(
+    void*t,const char*m,const void*buf,unsigned int len,void*response,int*flags)
 {
  HookGuard guard;
  auto orig=g_origServerMethod.load(std::memory_order_acquire);
@@ -675,143 +669,119 @@ extern "C" bool hook_ServerMethodRaw(
    orig=g_origServerMethod.load(std::memory_order_acquire);
  }
  if(!orig||g_shuttingDown.load(std::memory_order_acquire)||!m||!buf)
-   return orig?orig(t,m,buf,len,response,options):false;
+   return orig?orig(t,m,buf,len,response,flags):false;
 
  const bool isCloud = strncmp(m,"Cloud.",6)==0;
  const bool isGetUserStats = strcmp(m,StatsHandlers::RPC_GET_USER_STATS)==0;
  const bool isGetLastPlayed = strcmp(m,StatsHandlers::RPC_GET_LAST_PLAYED)==0;
  if(!isCloud && !isGetUserStats && !isGetLastPlayed)
-   return orig(t,m,buf,len,response,options);
+   return orig(t,m,buf,len,response,flags);
 
- LOG("[Mac] raw RPC observed: %s body=%u", m, len);
+ LOG("[Mac] RPC observed: %s body=%u flags=%p", m, len, (void*)flags);
  EnsureInitialized();
+
  auto fields=PB::Parse((const uint8_t*)buf,len);
 
  if(isGetLastPlayed){
    if(!MetadataSync::syncPlaytime.load(std::memory_order_relaxed))
-     return orig(t,m,buf,len,response,options);
-
-   // Keep Steam's real recently-played response and merge our locally tracked
-   // namespace games into it. Replacing the response would erase owned-game
-   // entries on macOS, unlike Linux.
-   const bool origResult = orig(t,m,buf,len,response,options);
-   if(!origResult)
-     return origResult;
-
+     return orig(t,m,buf,len,response,flags);
+   const bool origResult=orig(t,m,buf,len,response,flags);
+   if(!origResult) return origResult;
    auto res=StatsHandlers::HandleGetLastPlayedTimes(fields);
-   MergeRawLastPlayedResponse(response,res.body);
+   if(response && res.body.Size() &&
+      !ParseTypedMessage(response,res.body.Data()))
+     return origResult;
+   if(flags){ flags[2]=1; flags[3]=res.eresult; }
+   LOG("[Mac] RPC handled: %s eresult=%d bytes=%zu",m,res.eresult,res.body.Size());
    return origResult;
  }
 
  const uint32_t app=ExtractRequestAppId(m,fields);
- if(!app||!CloudIntercept::IsNamespaceApp(app))
-   return orig(t,m,buf,len,response,options);
+ if(!app || !CloudIntercept::IsNamespaceApp(app))
+   return orig(t,m,buf,len,response,flags);
 
  if(isGetUserStats){
    if(!MetadataSync::syncAchievements.load(std::memory_order_relaxed))
-     return orig(t,m,buf,len,response,options);
+     return orig(t,m,buf,len,response,flags);
    auto res=StatsHandlers::HandleGetUserStats(app,fields);
-   SetRawResponse(response,res.body);
+   if(response && res.body.Size() &&
+      !ParseTypedMessage(response,res.body.Data()))
+     return orig(t,m,buf,len,response,flags);
+   if(flags){ flags[2]=1; flags[3]=res.eresult; }
+   LOG("[Mac] RPC handled: %s app=%u eresult=%d bytes=%zu",
+       m,app,res.eresult,res.body.Size());
    return true;
  }
 
- if(HttpServer::GetPort()==0 && RequiresLocalHttp(m))
-   return orig(t,m,buf,len,response,options);
-
- // FileDownload is intentionally original-first: Steam performs its normal
- // request/session bookkeeping, then we replace the returned body with our
- // local cloud result, matching the Linux hook path.
- const bool isFileDownload =
-     strcmp(m,CloudIntercept::RPC_FILE_DOWNLOAD)==0;
- if(isFileDownload){
-     const bool origResult = orig(t,m,buf,len,response,options);
-     const uint32_t account=CloudIntercept::GetAccountId();
-     if(!account)
-         return origResult;
-
-     LocalStorage::InitApp(account,app);
-     LocalMetadataStore::InitApp(account,app);
-     auto fileRes=Dispatch(m,app,fields);
-     if(!fileRes.has_value() || fileRes->eresult!=CloudIntercept::kEResultOK)
-         return origResult;
-
-     SetRawResponse(response,fileRes->body);
-     LOG("[Mac] raw Cloud RPC handled: %s app=%u eresult=%d bytes=%zu",
-         m, app, fileRes->eresult, fileRes->body.Size());
-     return true;
+ if(HttpServer::GetPort()==0 && RequiresLocalHttp(m)){
+   LOG("[Mac] Cloud HTTP server unavailable; passing through %s app=%u",m,app);
+   return orig(t,m,buf,len,response,flags);
  }
 
  const uint32_t account=CloudIntercept::GetAccountId();
  if(!account)
-   return orig(t,m,buf,len,response,options);
+   return orig(t,m,buf,len,response,flags);
 
  LocalStorage::InitApp(account,app);
  LocalMetadataStore::InitApp(account,app);
 
- auto res=Dispatch(m,app,fields);
- if(!res.has_value()) {
-   LOG("[Mac] raw Cloud RPC unhandled: %s app=%u -> native", m, app);
-   return orig(t,m,buf,len,response,options);
+ const bool isFileDownload =
+     strcmp(m,CloudIntercept::RPC_FILE_DOWNLOAD)==0;
+ if(isFileDownload){
+   // Let Steam do its normal session/transport bookkeeping first, then
+   // replace only the typed protobuf response with our local result.
+   const bool origResult=orig(t,m,buf,len,response,flags);
+   auto res=Dispatch(m,app,fields);
+   if(!res.has_value())
+     return origResult;
+   if(response && res->body.Size() &&
+      !ParseTypedMessage(response,res->body.Data()))
+     return origResult;
+   if(flags){ flags[2]=1; flags[3]=res->eresult; }
+   LOG("[Mac] Cloud RPC handled: %s app=%u eresult=%d bytes=%zu",
+       m,app,res->eresult,res->body.Size());
+   return true;
  }
 
- // The raw ABI has no Linux-style flags[] out parameter. The response body is
- // therefore the only channel available here; recognized RPCs must stay on the
- // local path even when the handler reports a non-OK EResult, otherwise Steam
- // silently falls back to the real backend and surfaces a generic Cloud Error.
- SetRawResponse(response,res->body);
- LOG("[Mac] raw Cloud RPC handled: %s app=%u eresult=%d bytes=%zu",
-     m, app, res->eresult, res->body.Size());
+ auto res=Dispatch(m,app,fields);
+ if(!res.has_value()){
+   LOG("[Mac] Cloud RPC unhandled: %s app=%u -> native",m,app);
+   return orig(t,m,buf,len,response,flags);
+ }
+
+ if(response && res->body.Size() &&
+    !ParseTypedMessage(response,res->body.Data())){
+   LOG("[Mac] Cloud RPC response parse failed: %s app=%u -> native",m,app);
+   return orig(t,m,buf,len,response,flags);
+ }
+ if(flags){
+   flags[2]=1;
+   flags[3]=res->eresult;
+ }
+ LOG("[Mac] Cloud RPC handled: %s app=%u eresult=%d bytes=%zu",
+     m,app,res->eresult,res->body.Size());
  return true;
 }
 
-extern "C" bool hook_ServerNotificationRaw(
-    void*t,const char*m,const void*buf,unsigned int len,void*options)
+extern "C" bool hook_NotificationDirect(
+    void*t,const char*m,void*message,int*flags)
 {
  HookGuard guard;
  auto orig=g_origServerNotification.load(std::memory_order_acquire);
  for(int i=0; !orig && i<1000; ++i){
-     std::this_thread::sleep_for(std::chrono::microseconds(100));
-     orig=g_origServerNotification.load(std::memory_order_acquire);
+   std::this_thread::sleep_for(std::chrono::microseconds(100));
+   orig=g_origServerNotification.load(std::memory_order_acquire);
  }
- if(!orig||g_shuttingDown.load(std::memory_order_acquire)||!m||!buf)
-   return orig?orig(t,m,buf,len,options):false;
+ if(!orig || g_shuttingDown.load(std::memory_order_acquire) || !m)
+   return orig ? orig(t,m,message,flags) : false;
 
- if(strncmp(m,"Cloud.",6)!=0)
-   return orig(t,m,buf,len,options);
+ if(strncmp(m,"Cloud.",6)==0)
+   LOG("[Mac] Cloud notification observed: %s",m);
 
- auto fields=PB::Parse((const uint8_t*)buf,len);
- auto* appField=PB::FindField(fields,1);
- uint32_t app=appField ? (uint32_t)appField->varintVal : 0;
- if(!app||!CloudIntercept::IsNamespaceApp(app))
-   return orig(t,m,buf,len,options);
-
- if(strcmp(m,CloudIntercept::RPC_EXIT_SYNC)==0){
-   uint64_t clientId=0;
-   bool uploadsCompleted=false, uploadsRequired=false;
-   if(auto* x=PB::FindField(fields,2))clientId=x->varintVal;
-   if(auto* x=PB::FindField(fields,3))uploadsCompleted=x->varintVal!=0;
-   if(auto* x=PB::FindField(fields,4))uploadsRequired=x->varintVal!=0;
-
-   uint32_t account=CloudIntercept::GetAccountId();
-   if(account){
-     PendingOpsJournal::RecordExitSyncState(account,app,uploadsCompleted,uploadsRequired,clientId);
-     std::thread([account,app,clientId]{
-       CloudStorage::InflightSyncScope guard;
-       if(!guard.entered)return;
-       CloudStorage::ReleaseCloudSession(account,app,clientId);
-     }).detach();
-   }
-   // Preserve Steam's ExitSync handling (remotecache/session bookkeeping).
-   return orig(t,m,buf,len,options);
- }
-
- if(strcmp(m,CloudIntercept::RPC_CONFLICT)==0){
-   bool choseLocal=false;
-   if(auto* x=PB::FindField(fields,2))choseLocal=x->varintVal!=0;
-   CloudIntercept::RecordConflictResolution(app,choseLocal);
- }
-
- return true;
+ // Slot 7 is the notification ABI (protobuf object + flags), not the raw
+ // request/response ABI. Keep it native until a safe message serializer is
+ // proven for this Steam build.
+ return orig(t,m,message,flags);
 }
 
 extern "C" bool hook_IsCloudEnabledForApp(void*t,unsigned int app){
