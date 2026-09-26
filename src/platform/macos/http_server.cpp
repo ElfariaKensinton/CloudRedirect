@@ -29,7 +29,7 @@
 static std::string g_blobRoot;
 static std::atomic<uint32_t> g_accountId{0};
 static std::atomic<uint16_t> g_port{0};
-static int g_listenFd = -1;
+static std::atomic<int> g_listenFd{-1};
 static std::string g_authToken;
 static std::atomic<bool> g_running{false};
 static std::atomic<int> g_activeConnections{0};
@@ -523,16 +523,16 @@ bool Start(const std::string& blobRoot, uint32_t accountId) {
     g_accountId = accountId;
     g_authToken = GenerateAuthToken();
 
-    g_listenFd = socket(AF_INET, SOCK_STREAM, 0);
-    if (g_listenFd < 0) {
+    int listenFd = socket(AF_INET, SOCK_STREAM, 0);
+    if (listenFd < 0) {
         LOG("[HttpServer] Failed to create socket");
         return false;
     }
 
     int opt = 1;
-    setsockopt(g_listenFd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+    setsockopt(listenFd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
 #ifdef SO_NOSIGPIPE
-    setsockopt(g_listenFd, SOL_SOCKET, SO_NOSIGPIPE, &opt, sizeof(opt));
+    setsockopt(listenFd, SOL_SOCKET, SO_NOSIGPIPE, &opt, sizeof(opt));
 #endif
 
     struct sockaddr_in addr{};
@@ -540,30 +540,33 @@ bool Start(const std::string& blobRoot, uint32_t accountId) {
     addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
     addr.sin_port = 0; // OS assigns port
 
-    if (bind(g_listenFd, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
+    if (bind(listenFd, (struct sockaddr*)&addr, sizeof(addr)) < 0) {
         LOG("[HttpServer] Failed to bind");
-        close(g_listenFd);
-        g_listenFd = -1;
+        close(listenFd);
+        g_listenFd.store(-1, std::memory_order_release);
         return false;
     }
 
     socklen_t addrLen = sizeof(addr);
-    getsockname(g_listenFd, (struct sockaddr*)&addr, &addrLen);
+    getsockname(listenFd, (struct sockaddr*)&addr, &addrLen);
     g_port.store(ntohs(addr.sin_port), std::memory_order_release);
 
-    if (listen(g_listenFd, 16) < 0) {
+    if (listen(listenFd, 16) < 0) {
         LOG("[HttpServer] Failed to listen");
-        close(g_listenFd);
-        g_listenFd = -1;
+        close(listenFd);
+        g_listenFd.store(-1, std::memory_order_release);
         return false;
     }
 
+    g_listenFd.store(listenFd, std::memory_order_release);
     g_running = true;
     g_serverThread = std::thread([]() {
         while (g_running) {
             struct sockaddr_in clientAddr{};
             socklen_t clientLen = sizeof(clientAddr);
-            int clientFd = accept(g_listenFd, (struct sockaddr*)&clientAddr, &clientLen);
+            int fd = g_listenFd.load(std::memory_order_acquire);
+            if (fd < 0) break;
+            int clientFd = accept(fd, (struct sockaddr*)&clientAddr, &clientLen);
             if (clientFd >= 0) {
 #ifdef SO_NOSIGPIPE
                 int noSigPipe = 1;
@@ -648,10 +651,10 @@ void SetMaxUploadMB(int mb) {
 
 void Stop() {
     g_running = false;
-    if (g_listenFd >= 0) {
-        shutdown(g_listenFd, SHUT_RDWR);
-        close(g_listenFd);
-        g_listenFd = -1;
+    int listenFd = g_listenFd.exchange(-1, std::memory_order_acq_rel);
+    if (listenFd >= 0) {
+        shutdown(listenFd, SHUT_RDWR);
+        close(listenFd);
     }
     if (g_serverThread.joinable())
         g_serverThread.join();
@@ -708,18 +711,26 @@ uint64_t GetBlobSize(uint32_t accountId, uint32_t appId, const std::string& file
 }
 
 std::vector<uint8_t> ReadBlob(uint32_t accountId, uint32_t appId, const std::string& filename) {
+    const BlobKey key{accountId, appId, filename};
+    std::vector<uint8_t> data;
+    bool fromMemory = false;
     {
         std::lock_guard<std::mutex> lk(g_memBlobMtx);
-        auto it = g_memBlobs.find({accountId, appId, filename});
+        auto it = g_memBlobs.find(key);
         if (it != g_memBlobs.end()) {
-            std::vector<uint8_t> data = it->second;  // copy out
-            // Retry disk write now that the lock is likely released.
-            std::string blobPath = BlobPath(accountId, appId, filename);
-            if (FileUtil::AtomicWriteBinary(blobPath, data.data(), data.size())) {
-                g_memBlobs.erase(it);
-            }
-            return data;
+            data = it->second;
+            fromMemory = true;
         }
+    }
+    if (fromMemory) {
+        const std::string blobPath = BlobPath(accountId, appId, filename);
+        if (FileUtil::AtomicWriteBinary(blobPath, data.data(), data.size())) {
+            std::lock_guard<std::mutex> lk(g_memBlobMtx);
+            auto it = g_memBlobs.find(key);
+            if (it != g_memBlobs.end() && it->second == data)
+                g_memBlobs.erase(it);
+        }
+        return data;
     }
     std::string path = BlobPath(accountId, appId, filename);
     if (!FileUtil::IsPathWithin(g_blobRoot, path)) return {};

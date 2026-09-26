@@ -23,6 +23,7 @@ public:
     QString bundledVersion() const; QString deployedVersion() const; QString steamPath() const; bool steamRunning() const;
     Q_INVOKABLE void checkPrerequisites();
     Q_INVOKABLE bool deploy(); Q_INVOKABLE bool undeploy(); Q_INVOKABLE bool update(); Q_INVOKABLE bool purgeAll();
+    Q_INVOKABLE bool openLog();
     Q_INVOKABLE bool launchSteamWithCloudRedirect();
 signals:
     void checkCompleted(); void statusMessageChanged(); void deployCompleted(bool success);

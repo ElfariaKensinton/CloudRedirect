@@ -20,6 +20,10 @@
 #include <dlfcn.h>
 #include <mach-o/dyld.h>
 #include <mach-o/loader.h>
+#include <mach-o/nlist.h>
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <sys/mman.h>
 #include <fstream>
 #include <iterator>
 #include <memory>
@@ -316,6 +320,81 @@ void SetOriginals(void*a,void*b,void*c,void*d){
  g_orig8.store((Send8Fn)d,std::memory_order_release);
 }
 void SetOriginalIsCloudEnabled(void*o){g_origCloud.store((CloudEnabledFn)o,std::memory_order_release);}
+static void* ResolveLocalMachOSymbol(const char* imagePath, intptr_t slide, const char* symbol)
+{
+    if (!imagePath || !symbol) return nullptr;
+
+    const int fd = open(imagePath, O_RDONLY);
+    if (fd < 0) return nullptr;
+
+    struct stat st{};
+    if (fstat(fd, &st) != 0 || st.st_size < static_cast<off_t>(sizeof(mach_header_64))) {
+        close(fd);
+        return nullptr;
+    }
+
+    void* mapped = mmap(nullptr, static_cast<size_t>(st.st_size), PROT_READ, MAP_PRIVATE, fd, 0);
+    close(fd);
+    if (mapped == MAP_FAILED) return nullptr;
+
+    void* result = nullptr;
+    const auto* header = static_cast<const mach_header_64*>(mapped);
+    if (header->magic != MH_MAGIC_64) {
+        munmap(mapped, static_cast<size_t>(st.st_size));
+        return nullptr;
+    }
+
+    const auto* lc = reinterpret_cast<const load_command*>(
+        reinterpret_cast<const uint8_t*>(header) + sizeof(mach_header_64));
+
+    for (uint32_t i = 0; i < header->ncmds; ++i) {
+        if (lc->cmd == LC_SYMTAB) {
+            const auto* symtab = reinterpret_cast<const symtab_command*>(lc);
+            const uint64_t symbolsEnd =
+                static_cast<uint64_t>(symtab->symoff) +
+                static_cast<uint64_t>(symtab->nsyms) * sizeof(nlist_64);
+            const uint64_t stringsEnd =
+                static_cast<uint64_t>(symtab->stroff) +
+                static_cast<uint64_t>(symtab->strsize);
+
+            if (symbolsEnd <= static_cast<uint64_t>(st.st_size) &&
+                stringsEnd <= static_cast<uint64_t>(st.st_size)) {
+                const auto* symbols = reinterpret_cast<const nlist_64*>(
+                    reinterpret_cast<const uint8_t*>(mapped) + symtab->symoff);
+                const char* strings =
+                    reinterpret_cast<const char*>(reinterpret_cast<const uint8_t*>(mapped) + symtab->stroff);
+
+                for (uint32_t n = 0; n < symtab->nsyms; ++n) {
+                    const nlist_64& entry = symbols[n];
+                    if (entry.n_un.n_strx == 0 || entry.n_un.n_strx >= symtab->strsize)
+                        continue;
+                    if ((entry.n_type & N_TYPE) != N_SECT)
+                        continue;
+
+                    const char* name = strings + entry.n_un.n_strx;
+                    const size_t maxName = symtab->strsize - entry.n_un.n_strx;
+                    const size_t nameLen = strnlen(name, maxName);
+                    if (nameLen == maxName)
+                        continue;
+
+                    if (strcmp(name, symbol) == 0) {
+                        result = reinterpret_cast<void*>(static_cast<uintptr_t>(entry.n_value) + slide);
+                        break;
+                    }
+                }
+            }
+        }
+
+        if (result || lc->cmdsize == 0)
+            break;
+        lc = reinterpret_cast<const load_command*>(
+            reinterpret_cast<const uint8_t*>(lc) + lc->cmdsize);
+    }
+
+    munmap(mapped, static_cast<size_t>(st.st_size));
+    return result;
+}
+
 static void* ResolveSteamclientSymbol(void* steamclientHandle, const char* symbol)
 {
     if (steamclientHandle) {
@@ -331,13 +410,16 @@ bool ResolveProtobufHelpers(void* steamclientBase,size_t){
  const char* size="_ZNK6google8protobuf11MessageLite11ByteSizeLongEv";
 
  void* handle = nullptr;
+ const char* imageName = nullptr;
+ intptr_t imageSlide = 0;
  if (steamclientBase) {
      uint32_t count = _dyld_image_count();
      for (uint32_t i = 0; i < count; ++i) {
          const mach_header* h = _dyld_get_image_header(i);
          if (!h) continue;
          if (reinterpret_cast<uintptr_t>(h) != reinterpret_cast<uintptr_t>(steamclientBase)) continue;
-         const char* imageName = _dyld_get_image_name(i);
+         imageName = _dyld_get_image_name(i);
+         imageSlide = _dyld_get_image_vmaddr_slide(i);
          if (imageName)
              handle = dlopen(imageName, RTLD_NOW | RTLD_NOLOAD | RTLD_LOCAL);
          break;
@@ -347,6 +429,16 @@ bool ResolveProtobufHelpers(void* steamclientBase,size_t){
  g_serialize=reinterpret_cast<SerializeFn>(ResolveSteamclientSymbol(handle,ser));
  g_parse=reinterpret_cast<ParseFn>(ResolveSteamclientSymbol(handle,par));
  g_byteSize=reinterpret_cast<ByteSizeFn>(ResolveSteamclientSymbol(handle,size));
+
+ if ((!g_serialize || !g_parse) && imageName) {
+     if (!g_serialize)
+         g_serialize=reinterpret_cast<SerializeFn>(ResolveLocalMachOSymbol(imageName, imageSlide, ser));
+     if (!g_parse)
+         g_parse=reinterpret_cast<ParseFn>(ResolveLocalMachOSymbol(imageName, imageSlide, par));
+     if (!g_byteSize)
+         g_byteSize=reinterpret_cast<ByteSizeFn>(ResolveLocalMachOSymbol(imageName, imageSlide, size));
+ }
+
  if (handle) dlclose(handle);
 
  g_protoReady.store(g_serialize&&g_parse,std::memory_order_release);

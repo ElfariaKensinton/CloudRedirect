@@ -20,6 +20,9 @@ static constexpr char kCRVersionMarker[] = "CloudRedirectVersion/0.0.0";
 static std::atomic<bool> g_started{false};
 static std::atomic<bool> g_unloading{false};
 static std::atomic<bool> g_threadStarted{false};
+static std::atomic<bool> g_steamProcess{false};
+static std::atomic<bool> g_cloudInitialized{false};
+static std::atomic<bool> g_hooksInstalled{false};
 static pthread_t g_initThread{};
 static VtableHook::VtableInfo g_transport{};
 static VtableHook::CloudEnabledHookInfo g_cloudEnabled{};
@@ -35,8 +38,10 @@ static void* InitThread(void*)
             if(void** vt=VtableHook::FindTransportVtable(base,size)){
                 if(g_unloading.load(std::memory_order_acquire)) return nullptr;
                 if(VtableHook::InstallHooks(vt,g_transport)){
+                    g_hooksInstalled.store(true, std::memory_order_release);
                     CloudHooks::ResolveProtobufHelpers((void*)base,size);
                     CloudHooks::Initialize();
+                    g_cloudInitialized.store(true, std::memory_order_release);
                     LOG("[Mac] CloudRedirect transport hook active");
                     return nullptr;
                 }
@@ -59,14 +64,22 @@ static bool IsSteamProcess()
 __attribute__((constructor))
 static void CR_OnLoad()
 {
+    Log::Init();
+    LOG("[Mac] dylib constructor process=%s", getprogname() ? getprogname() : "<unknown>");
     // DYLD_INSERT_LIBRARIES reaches child processes. Only the Steam client
     // itself is allowed to initialize hooks; every other process must simply
     // drop the inherited variable and continue untouched.
     if (!IsSteamProcess()) {
+        LOG("[Mac] not Steam process; skipping hook initialization");
         unsetenv("DYLD_INSERT_LIBRARIES");
         return;
     }
-    unsetenv("DYLD_INSERT_LIBRARIES");
+    g_steamProcess.store(true, std::memory_order_release);
+
+    // Keep DYLD_INSERT_LIBRARIES in the Steam client environment. Steam
+    // bootstraps the real client from a second steam_osx executable, and the
+    // macSteam launcher deliberately preserves DYLD_INSERT_LIBRARIES for
+    // steam_osx children so injected libraries survive that relaunch.
     if (pthread_create(&g_initThread, nullptr, &InitThread, nullptr) == 0)
         g_threadStarted.store(true, std::memory_order_release);
 }
@@ -74,11 +87,21 @@ static void CR_OnLoad()
 __attribute__((destructor))
 static void CR_OnUnload()
 {
+    // cloud_redirect_cli and other DYLD-injected child processes load this dylib
+    // too. In those processes the constructor intentionally did nothing, so
+    // teardown must be equally inert; otherwise we touch Steam-only C++ state
+    // during dlclose and can abort with std::system_error.
+    if (!g_steamProcess.load(std::memory_order_acquire))
+        return;
+
     g_unloading.store(true, std::memory_order_release);
     if (g_threadStarted.load(std::memory_order_acquire))
         pthread_join(g_initThread, nullptr);
-    CloudHooks::BeginShutdown();
-    VtableHook::RemoveHooks(g_transport);
+
+    if (g_cloudInitialized.exchange(false, std::memory_order_acq_rel))
+        CloudHooks::BeginShutdown();
+    if (g_hooksInstalled.exchange(false, std::memory_order_acq_rel))
+        VtableHook::RemoveHooks(g_transport);
 }
 
 extern "C" const char* CR_GetVersion()

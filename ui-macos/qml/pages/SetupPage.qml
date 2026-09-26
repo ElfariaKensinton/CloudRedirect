@@ -135,11 +135,11 @@ Page {
                     spacing: 4
 
                     Label {
-                        text: "SLSsteam"
+                        text: "Target app configuration"
                         font.bold: true
                     }
                     Label {
-                        text: deployer && deployer.slssteamInstalled ? "Installed" : "Not found"
+                        text: deployer && deployer.slssteamInstalled ? "SLSsteam AdditionalApps configuration found" : "No AdditionalApps configuration found"
                         opacity: 0.7
                     }
                     Label {
@@ -206,8 +206,8 @@ Page {
 
                 Button {
                     text: "Deploy"
-                    enabled: deployer && deployer.slssteamInstalled && !deployer.alreadyDeployed
-                    highlighted: deployer && deployer.slssteamInstalled && !deployer.alreadyDeployed
+                    enabled: deployer && !deployer.alreadyDeployed && !deployer.steamRunning
+                    highlighted: deployer && !deployer.alreadyDeployed && !deployer.steamRunning
                     onClicked: { if (deployer) deployer.deploy() }
                 }
 
@@ -225,8 +225,21 @@ Page {
                 }
 
                 Button {
+                    text: "Launch Steam with CloudRedirect"
+                    visible: deployer && deployer.alreadyDeployed
+                    enabled: deployer && deployer.alreadyDeployed && !deployer.steamRunning
+                    highlighted: deployer && deployer.alreadyDeployed && !deployer.steamRunning
+                    onClicked: { if (deployer) deployer.launchSteamWithCloudRedirect() }
+                }
+
+                Button {
                     text: "Remove All Data"
                     onClicked: purgeDialog.open()
+                }
+
+                Button {
+                    text: "Open Log"
+                    onClicked: { if (deployer) deployer.openLog() }
                 }
 
                 Button {

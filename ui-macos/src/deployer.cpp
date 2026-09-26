@@ -2,6 +2,8 @@
 #include "utils.h"
 #include <QCoreApplication>
 #include <QDir>
+#include <QDesktopServices>
+#include <QUrl>
 #include <QFile>
 #include <QFileInfo>
 #include <QProcess>
@@ -144,6 +146,16 @@ bool Deployer::deploy(){
 bool Deployer::update(){return deploy();}
 bool Deployer::undeploy(){if(m_steamRunning){m_statusMessage="Quit Steam before removing the dylib.";emit statusMessageChanged();return false;}QFile::remove(m_soDeployPath);QFile::remove(m_cliDeployPath);m_alreadyDeployed=false;m_deployedVersion.clear();m_statusMessage="CloudRedirect removed.";emit statusMessageChanged();emit checkCompleted();return true;}
 bool Deployer::purgeAll(){if(m_steamRunning)return false;undeploy();QDir(crConfigDir()).removeRecursively();QDir(crDataDir()).removeRecursively();m_statusMessage="CloudRedirect data removed.";emit statusMessageChanged();emit checkCompleted();return true;}
+bool Deployer::openLog(){
+    const QString path = crDataDir() + "/cloud_redirect.log";
+    QDir().mkpath(crDataDir());
+    if (!QFile::exists(path)) {
+        QFile f(path);
+        f.open(QIODevice::WriteOnly);
+        f.close();
+    }
+    return QDesktopServices::openUrl(QUrl::fromLocalFile(path));
+}
 bool Deployer::launchSteamWithCloudRedirect(){
     if(!m_alreadyDeployed&&!deploy())return false; m_steamRunning=detectSteamRunning();
     if(m_steamRunning){m_statusMessage="Steam is already running. Quit it completely first.";emit statusMessageChanged();emit checkCompleted();return false;}

@@ -50,8 +50,22 @@ target_link_libraries(cloud-redirect-ui PRIVATE Qt6::Quick Qt6::QuickControls2 Q
 set_target_properties(cloud-redirect-ui PROPERTIES MACOSX_BUNDLE_GUI_IDENTIFIER "io.github.cloudredirect.CloudRedirect")
 install(TARGETS cloud-redirect-ui BUNDLE DESTINATION .)
 
+find_program(CLOUDREDIRECT_MACDEPLOYQT
+  NAMES macdeployqt
+  HINTS
+    "${Qt6_DIR}/../../../bin"
+    "${CMAKE_PREFIX_PATH}/bin"
+)
+if(NOT CLOUDREDIRECT_MACDEPLOYQT)
+  message(FATAL_ERROR "macdeployqt was not found; install Qt6 tools before configuring the macOS UI")
+endif()
+
 add_dependencies(cloud-redirect-ui cloud_redirect cloud_redirect_cli)
 add_custom_command(TARGET cloud-redirect-ui POST_BUILD
   COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:cloud_redirect>" "$<TARGET_FILE_DIR:cloud-redirect-ui>/cloud_redirect.dylib"
   COMMAND ${CMAKE_COMMAND} -E copy_if_different "$<TARGET_FILE:cloud_redirect_cli>" "$<TARGET_FILE_DIR:cloud-redirect-ui>/cloud_redirect_cli"
+  COMMAND "${CLOUDREDIRECT_MACDEPLOYQT}" "$<TARGET_BUNDLE_DIR:cloud-redirect-ui>"
+          "-qmldir=${CMAKE_CURRENT_SOURCE_DIR}/qml"
+          -no-strip
+  VERBATIM
 )
