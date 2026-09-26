@@ -8,6 +8,7 @@ struct VtableInfo {
     void* origSlot5=nullptr;
     void* origSlot6=nullptr;
     void* origSlot7=nullptr;
+    void* origSlot8=nullptr;
     bool typedInstalled=false;
     int originalProtection=0;
 };
