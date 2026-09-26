@@ -132,7 +132,7 @@ bool VtableHook::InstallHooks(void**vt,VtableInfo&i){
         Log::Error("macOS transport hook: failed to restore vtable page protection; rolling back");
         if(MakeWritable(firstSlot,slotCount)){
             vt[7]=i.origSlot7;
-            vt[8]=i.origSlot6;
+            vt[8]=i.origSlot8;
             RestoreProtection(firstSlot,slotCount,originalProt);
         }
         i.vtable=nullptr;
@@ -141,7 +141,7 @@ bool VtableHook::InstallHooks(void**vt,VtableInfo&i){
     }
 
     Log::Info("macOS transport hooks installed (slot 7 notification + slot 8 SyncSend2; slots 4/5 native)");
-    CloudHooks::SetOriginalRaw(vt[8],vt[7]);
+    CloudHooks::SetOriginalRaw(i.origSlot8,i.origSlot7);
     return true;
 }
 
