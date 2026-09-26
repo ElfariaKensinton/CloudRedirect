@@ -22,6 +22,14 @@ struct CloudEnabledHookInfo {
     size_t appSlotIndex=SIZE_MAX;
     size_t setAppSlotIndex=SIZE_MAX;
     size_t setAccountSlotIndex=SIZE_MAX;
+    void* origSyncAppSlot=nullptr;
+    void* origIsSyncSlot=nullptr;
+    void* origRunLaunchSlot=nullptr;
+    void* origRunExitSlot=nullptr;
+    size_t syncAppSlotIndex=SIZE_MAX;
+    size_t isSyncSlotIndex=SIZE_MAX;
+    size_t runLaunchSlotIndex=SIZE_MAX;
+    size_t runExitSlotIndex=SIZE_MAX;
 };
 uintptr_t FindSteamclient(size_t& outSize);
 void** FindTransportVtable(uintptr_t base,size_t size);
