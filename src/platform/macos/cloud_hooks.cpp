@@ -32,10 +32,14 @@
 
 using RawServerMethodFn=bool(*)(void*,const char*,const void*,unsigned int,std::string&,void*);
 using RawServerNotificationFn=bool(*)(void*,const char*,const void*,unsigned int,void*);
+using TypedServerMethodFn=bool(*)(void*,const char*,void*,void*,void*);
+using TypedServerNotificationFn=bool(*)(void*,const char*,void*,void*);
 using CloudEnabledFn=bool(*)(void*,unsigned int);
 
 static std::atomic<RawServerMethodFn> g_origServerMethod{nullptr};
 static std::atomic<RawServerNotificationFn> g_origServerNotification{nullptr};
+static std::atomic<TypedServerMethodFn> g_origServerMethodTyped{nullptr};
+static std::atomic<TypedServerNotificationFn> g_origServerNotificationTyped{nullptr};
 static std::atomic<CloudEnabledFn> g_origCloud{nullptr};
 static std::atomic<bool> g_initialized{false},g_shuttingDown{false};
 static std::atomic<int> g_hookRefCount{0};
@@ -274,6 +278,10 @@ void SetOriginalRaw(void* serverMethod,void* serverNotification){
  g_origServerMethod.store((RawServerMethodFn)serverMethod,std::memory_order_release);
  g_origServerNotification.store((RawServerNotificationFn)serverNotification,std::memory_order_release);
 }
+void SetOriginalTyped(void* serverMethod,void* serverNotification){
+ g_origServerMethodTyped.store((TypedServerMethodFn)serverMethod,std::memory_order_release);
+ g_origServerNotificationTyped.store((TypedServerNotificationFn)serverNotification,std::memory_order_release);
+}
 void SetOriginalIsCloudEnabled(void*o){g_origCloud.store((CloudEnabledFn)o,std::memory_order_release);}
 void InstallGamesPlayedObserver(uintptr_t,size_t){
  LOG("[Mac] GamesPlayed observer unavailable on this build; playtime uses native stats reconciliation/poller");
@@ -320,6 +328,29 @@ static void SetRawResponse(std::string& response,const PB::Writer& body){
  const auto& data=body.Data();
  if(data.empty()) response.clear();
  else response.assign(reinterpret_cast<const char*>(data.data()),data.size());
+}
+
+extern "C" bool hook_ServerMethodTyped(
+    void*t,const char*m,void*request,void*response,void*options)
+{
+    auto orig=g_origServerMethodTyped.load(std::memory_order_acquire);
+    if(!orig) return false;
+    if(m && (strncmp(m,"Cloud.",6)==0 ||
+             strcmp(m,StatsHandlers::RPC_GET_USER_STATS)==0 ||
+             strcmp(m,StatsHandlers::RPC_GET_LAST_PLAYED)==0)) {
+        LOG("[Mac] typed server method observed: %s req=%p resp=%p",m,request,response);
+    }
+    return orig(t,m,request,response,options);
+}
+
+extern "C" bool hook_ServerNotificationTyped(
+    void*t,const char*m,void*message,void*options)
+{
+    auto orig=g_origServerNotificationTyped.load(std::memory_order_acquire);
+    if(!orig) return false;
+    if(m && strncmp(m,"Cloud.",6)==0)
+        LOG("[Mac] typed server notification observed: %s msg=%p",m,message);
+    return orig(t,m,message,options);
 }
 
 extern "C" bool hook_ServerMethodRaw(
