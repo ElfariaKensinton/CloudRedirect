@@ -1986,14 +1986,26 @@ void SeedApps(const std::vector<uint32_t>& appIds) {
     // One network read for the whole account, not one per app.
     RefreshCloudBlobCache();
 
-    // Seed only the configured namespace apps. Cloud/cache entries for other
-    // AppIDs must remain untouched; otherwise macOS silently turns every local
-    // Steam game into a CloudRedirect target.
+    // macOS has no external namespace provider. Seed every AppID already
+    // discovered by native reconciliation, the local stats cache, or the
+    // account-wide cloud blob, plus any explicit platform-provided IDs.
     std::vector<uint32_t> seedIds;
     {
+        std::lock_guard<std::mutex> lock(g_mutex);
         std::unordered_set<uint32_t> seen;
-        seen.reserve(appIds.size());
+        seen.reserve(appIds.size() + g_cache.size() + g_cloudBlobByApp.size());
+
         for (uint32_t appId : appIds) {
+            if (appId != 0 && seen.insert(appId).second)
+                seedIds.push_back(appId);
+        }
+        for (const auto& [appId, stats] : g_cache) {
+            (void)stats;
+            if (appId != 0 && seen.insert(appId).second)
+                seedIds.push_back(appId);
+        }
+        for (const auto& [appId, json] : g_cloudBlobByApp) {
+            (void)json;
             if (appId != 0 && seen.insert(appId).second)
                 seedIds.push_back(appId);
         }
@@ -2007,7 +2019,7 @@ void SeedApps(const std::vector<uint32_t>& appIds) {
         GetOrCreate(appId);  // merges cached cloud blob + imports native + loads local
     }
 
-    // Write .bin files for SLSsteam's NO_CONNECTION fallback.
+    // Materialize the native compatibility stats for every discovered AppID.
     {
         std::lock_guard<std::mutex> lock(g_mutex);
         for (uint32_t appId : seedIds) {
