@@ -684,6 +684,59 @@ bool DownloadLegacyPlaytimeBlob(uint32_t accountId, uint32_t appId,
     return g_provider->Download(path, outData) && !outData.empty();
 }
 
+bool DownloadLegacyStatsBlobs(uint32_t accountId,
+                              std::unordered_map<uint32_t, std::string>& outJsonByApp) {
+    outJsonByApp.clear();
+    if (!g_provider || !g_provider->IsAuthenticated()) return false;
+    std::vector<ICloudProvider::FileInfo> files;
+    bool complete = false;
+    const std::string prefix = std::to_string(accountId) + "/";
+    if (!g_provider->ListChecked(prefix, files, &complete) || !complete) return false;
+
+    const std::string suffix = "/stats.json";
+    for (const auto& fi : files) {
+        if (fi.path.size() <= prefix.size() + suffix.size()) continue;
+        if (fi.path.rfind(prefix, 0) != 0) continue;
+        if (fi.path.size() <= suffix.size() ||
+            fi.path.compare(fi.path.size() - suffix.size(), suffix.size(), suffix) != 0) continue;
+        const size_t appStart = prefix.size();
+        const size_t appEnd = fi.path.find('/', appStart);
+        if (appEnd == std::string::npos || appEnd == appStart) continue;
+        uint32_t appId = 0;
+        try { appId = static_cast<uint32_t>(std::stoul(fi.path.substr(appStart, appEnd - appStart))); }
+        catch (...) { continue; }
+        if (appId == 0 || appId == CloudIntercept::kAccountScopeAppId) continue;
+        std::vector<uint8_t> data;
+        if (!g_provider->Download(fi.path, data) || data.empty()) continue;
+        outJsonByApp[appId] = std::string(reinterpret_cast<const char*>(data.data()), data.size());
+    }
+    return true;
+}
+
+bool DownloadLegacyPlaytimeBlobs(uint32_t accountId,
+                                 std::unordered_map<uint32_t, std::string>& outJsonByApp) {
+    outJsonByApp.clear();
+    if (!g_provider || !g_provider->IsAuthenticated()) return false;
+    std::vector<ICloudProvider::FileInfo> files;
+    bool complete = false;
+    const std::string prefix = std::to_string(accountId) + "/0/blobs/Playtime/";
+    if (!g_provider->ListChecked(prefix, files, &complete) || !complete) return false;
+
+    for (const auto& fi : files) {
+        if (fi.path.rfind(prefix, 0) != 0) continue;
+        const std::string filename = fi.path.substr(prefix.size());
+        if (filename.size() <= 4 || filename.compare(filename.size() - 4, 4, ".bin") != 0) continue;
+        uint32_t appId = 0;
+        try { appId = static_cast<uint32_t>(std::stoul(filename.substr(0, filename.size() - 4))); }
+        catch (...) { continue; }
+        if (appId == 0) continue;
+        std::vector<uint8_t> data;
+        if (!g_provider->Download(fi.path, data) || data.empty()) continue;
+        outJsonByApp[appId] = std::string(reinterpret_cast<const char*>(data.data()), data.size());
+    }
+    return true;
+}
+
 static void EnqueueCloudDelete(const std::string& cloudPath) {
     CloudWorkQueue::WorkItem wi;
     wi.type = CloudWorkQueue::WorkItem::Delete;
