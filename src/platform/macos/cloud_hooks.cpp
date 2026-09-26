@@ -38,7 +38,9 @@ using RawServerMethodFn=bool(*)(void*,const char*,const void*,unsigned int,void*
 using RawServerNotificationFn=bool(*)(void*,const char*,void*,int*);
 using TypedServerMethodFn=bool(*)(void*,const char*,void*,void*,void*);
 using TypedServerNotificationFn=bool(*)(void*,const char*,void*,void*);
+using CloudEnabledAccountFn=bool(*)(void*);
 using CloudEnabledFn=bool(*)(void*,unsigned int);
+static std::atomic<CloudEnabledAccountFn> g_origCloudAccount{nullptr};
 using ParseFromArrayFn=bool(*)(void*,const void*,int);
 using SerializeToArrayFn=bool(*)(const void*,void*,int);
 using ByteSizeFn=int(*)(const void*);
@@ -486,6 +488,7 @@ void SetOriginalTyped(void* serverMethod,void* serverNotification){
  g_origServerNotificationTyped.store((TypedServerNotificationFn)serverNotification,std::memory_order_release);
 }
 void SetOriginalIsCloudEnabled(void*o){g_origCloud.store((CloudEnabledFn)o,std::memory_order_release);}
+void SetOriginalIsCloudEnabledAccount(void*o){g_origCloudAccount.store((CloudEnabledAccountFn)o,std::memory_order_release);}
 void InstallGamesPlayedObserver(uintptr_t,size_t){
  LOG("[Mac] GamesPlayed observer unavailable on this build; playtime uses native stats reconciliation/poller");
 }
@@ -687,9 +690,14 @@ extern "C" bool hook_NotificationDirect(
  return orig(t,m,message,flags);
 }
 
+extern "C" bool hook_IsCloudEnabledForAccount(void*t){
+ auto orig=g_origCloudAccount.load(std::memory_order_acquire);
+ LOG("[Mac] IsCloudEnabledForAccount -> forced true");
+ return true;
+}
 extern "C" bool hook_IsCloudEnabledForApp(void*t,unsigned int app){
  auto orig=g_origCloud.load(std::memory_order_acquire);
- if(CloudIntercept::IsNamespaceApp(app)) return true;
+ if(CloudIntercept::IsNamespaceApp(app)){ LOG("[Mac] IsCloudEnabledForApp app=%u -> forced true",app); return true; }
  return orig?orig(t,app):true;
 }
 extern "C" void CR_SetCrashContext(const char*,const char*,uint32_t){}
