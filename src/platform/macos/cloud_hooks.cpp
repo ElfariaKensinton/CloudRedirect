@@ -87,6 +87,8 @@ static bool RequiresLocalHttp(const char* method)
 
 static void EnsureInitialized();
 static uint32_t ExtractRequestAppId(const char* method,const std::vector<PB::Field>& fields);
+static std::optional<CloudIntercept::RpcResult> Dispatch(
+    const char* method, uint32_t app, const std::vector<PB::Field>& fields);
 static void* FindLoadedImageSymbol(const char* wanted)
 {
     if (void* p = dlsym(RTLD_DEFAULT, wanted))
