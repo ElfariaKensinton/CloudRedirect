@@ -10,6 +10,7 @@
 #include <unordered_set>
 #include <vector>
 #include <string>
+#include <cstring>
 
 static std::string g_steamPath;
 static std::atomic<uint32_t> g_accountId{0};
