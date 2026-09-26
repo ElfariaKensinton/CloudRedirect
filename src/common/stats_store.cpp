@@ -1972,6 +1972,50 @@ static void MigrateLegacyPlaytimeBins(const std::vector<uint32_t>& appIds) {
                 try { tries = std::stoi(s); } catch (...) {}
             }
         }
+        // The consolidated account blob is the current format. Legacy cloud
+        // playtime probing is only needed when neither the local app JSON nor the
+        // consolidated cloud entry contains playtime. This avoids a network GET
+        // for every known app on every first startup while still preserving true
+        // first-format migrations.
+        bool needsLegacyProbe = true;
+        {
+            std::lock_guard<std::mutex> lock(g_mutex);
+            auto cloudIt = g_cloudBlobByApp.find(appId);
+            if (cloudIt != g_cloudBlobByApp.end() && !cloudIt->second.empty()) {
+                AppStats cloudStats;
+                if (ParseAppStatsJson(cloudIt->second, cloudStats) &&
+                    (cloudStats.playtime.minutesForever != 0 ||
+                     cloudStats.playtime.minutesLastTwoWeeks != 0 ||
+                     cloudStats.playtime.lastPlayedTime != 0 ||
+                     !cloudStats.playtime.perDevice.empty())) {
+                    needsLegacyProbe = false;
+                }
+            }
+            if (needsLegacyProbe) {
+                std::string localPath = StatsPath(appId);
+                if (!localPath.empty()) {
+                    std::ifstream lf(localPath);
+                    if (lf.good()) {
+                        std::string localJson((std::istreambuf_iterator<char>(lf)),
+                                              std::istreambuf_iterator<char>());
+                        AppStats localStats;
+                        if (ParseAppStatsJson(localJson, localStats) &&
+                            (localStats.playtime.minutesForever != 0 ||
+                             localStats.playtime.minutesLastTwoWeeks != 0 ||
+                             localStats.playtime.lastPlayedTime != 0 ||
+                             !localStats.playtime.perDevice.empty())) {
+                            needsLegacyProbe = false;
+                        }
+                    }
+                }
+            }
+        }
+
+        if (!needsLegacyProbe) {
+            std::ofstream(mk.string(), std::ios::trunc) << "done";
+            continue;
+        }
+
         std::string json = pullPt(appId);          // network, off-lock
         if (json.empty()) {
             if (++tries >= kMaxTries)
@@ -1980,7 +2024,7 @@ static void MigrateLegacyPlaytimeBins(const std::vector<uint32_t>& appIds) {
                 std::ofstream(mk.string(), std::ios::trunc) << tries;   // retry later
             continue;
         }
-        uint32_t mins, lastPlayed, twoWks;
+        uint32_t mins = 0, lastPlayed = 0, twoWks = 0;
         if (ParseLegacyPlaytimeBin(json, mins, lastPlayed, twoWks))
             ApplyLegacyPlaytime(appId, mins, lastPlayed, twoWks);
         std::ofstream(mk.string(), std::ios::trunc) << "done";          // recovered
