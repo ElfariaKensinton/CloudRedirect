@@ -1802,7 +1802,8 @@ void ResetStats(uint32_t appId) {
 
 // Migrate legacy per-app blobs into the consolidated account blob.
 static void MigrateLegacyBlobs(const std::vector<uint32_t>& appIds) {
-    (void)appIds;
+    std::unordered_set<uint32_t> targetApps(appIds.begin(), appIds.end());
+    if (targetApps.empty()) return;
     uint32_t accountId = 0;
     {
         std::lock_guard<std::mutex> lock(g_mutex);
@@ -1814,7 +1815,7 @@ static void MigrateLegacyBlobs(const std::vector<uint32_t>& appIds) {
     if (!CloudStorage::DownloadLegacyStatsBlobs(accountId, legacyByApp)) return;
 
     for (const auto& [appId, legacy] : legacyByApp) {
-        if (appId == 0 || legacy.empty()) continue;
+        if (appId == 0 || legacy.empty() || targetApps.count(appId) == 0) continue;
         AppStats parsed;
         if (!ParseAppStatsJson(legacy, parsed)) continue;
         std::lock_guard<std::mutex> lock(g_mutex);
@@ -1887,18 +1888,17 @@ static void ApplyLegacyPlaytime(uint32_t appId, uint32_t mins,
         appId, mins, (unsigned long long)otherTotal, shortfall, stats.playtime.minutesForever);
 }
 
-// Migrate 2.2.x Playtime/*.bin format. Done-marker prevents reruns.
+// Migrate 2.2.x Playtime/*.bin format. Only target apps are touched.
 static void MigrateLegacyPlaytimeBins(const std::vector<uint32_t>& appIds) {
     std::error_code ec;
-
-    // Pass 1: global marker for local scan. Pass 2: per-app markers for cloud.
-    fs::path donePath = FileUtil::Utf8ToPath(g_storageRoot) / ".legacy_playtime_migrated_v2";
-    fs::path cloudMarkerDir = FileUtil::Utf8ToPath(g_storageRoot) / ".legacy_pt_cloud_v2";
-    bool pass1Done = fs::exists(donePath, ec);
+    std::unordered_set<uint32_t> targetApps(appIds.begin(), appIds.end());
+    if (targetApps.empty()) return;
 
     // Pass 1: local .bin files (fast, no network). Only process the CURRENT
-    // account's directory to avoid cross-account contamination.
-    if (!pass1Done && !g_cloudRoot.empty()) {
+    // account's directory to avoid cross-account contamination. Unselected
+    // files are intentionally left untouched so they can be migrated later if
+    // the user adds that AppID to the target list.
+    if (!g_cloudRoot.empty()) {
         uint32_t currentAcct = g_accountIdProvider ? g_accountIdProvider() : 0;
         if (currentAcct != 0) {
             fs::path ptDir = FileUtil::Utf8ToPath(g_cloudRoot) / "storage"
@@ -1914,7 +1914,7 @@ static void MigrateLegacyPlaytimeBins(const std::vector<uint32_t>& appIds) {
                     std::string num = fn.substr(0, fn.find('.'));
                     uint32_t appId = 0;
                     try { appId = (uint32_t)std::stoul(num); } catch (...) {}
-                    if (appId == 0) continue;
+                    if (appId == 0 || targetApps.count(appId) == 0) continue;
                     std::ifstream f(entry.path());
                     if (!f.good()) continue;
                     std::string content((std::istreambuf_iterator<char>(f)),
@@ -1931,10 +1931,6 @@ static void MigrateLegacyPlaytimeBins(const std::vector<uint32_t>& appIds) {
         }
     }
 
-    // Mark pass 1 done so the whole-disk scan never repeats.
-    if (!pass1Done)
-        std::ofstream(donePath.string(), std::ios::trunc) << "1";
-
     // Pass 2: cloud copies. Enumerate the account once and download only legacy
     // .bin files that actually exist; do not probe every seeded AppID.
     uint32_t currentAcct = g_accountIdProvider ? g_accountIdProvider() : 0;
@@ -1942,14 +1938,13 @@ static void MigrateLegacyPlaytimeBins(const std::vector<uint32_t>& appIds) {
     std::unordered_map<uint32_t, std::string> legacyByApp;
     if (!CloudStorage::DownloadLegacyPlaytimeBlobs(currentAcct, legacyByApp)) return;
     for (const auto& [appId, json] : legacyByApp) {
-        if (appId == 0 || json.empty()) continue;
+        if (appId == 0 || json.empty() || targetApps.count(appId) == 0) continue;
         uint32_t mins = 0, lastPlayed = 0, twoWks = 0;
         if (ParseLegacyPlaytimeBin(json, mins, lastPlayed, twoWks)) {
             ApplyLegacyPlaytime(appId, mins, lastPlayed, twoWks);
             LOG("[Stats] Cloud legacy playtime recovered app %u (%u min)", appId, mins);
         }
     }
-    fs::create_directories(cloudMarkerDir, ec);
 }
 
 void RefreshLocalPlaytime() {
@@ -1991,26 +1986,14 @@ void SeedApps(const std::vector<uint32_t>& appIds) {
     // One network read for the whole account, not one per app.
     RefreshCloudBlobCache();
 
-    // macOS target-all mode does not have a finite configured namespace list.
-    // Build the seed set from every app already discovered locally or in the
-    // account-wide cloud blob, plus any explicit appIds supplied by a platform.
+    // Seed only the configured namespace apps. Cloud/cache entries for other
+    // AppIDs must remain untouched; otherwise macOS silently turns every local
+    // Steam game into a CloudRedirect target.
     std::vector<uint32_t> seedIds;
     {
-        std::lock_guard<std::mutex> lock(g_mutex);
         std::unordered_set<uint32_t> seen;
-        seen.reserve(appIds.size() + g_cache.size() + g_cloudBlobByApp.size());
-
+        seen.reserve(appIds.size());
         for (uint32_t appId : appIds) {
-            if (appId != 0 && seen.insert(appId).second)
-                seedIds.push_back(appId);
-        }
-        for (const auto& [appId, stats] : g_cache) {
-            (void)stats;
-            if (appId != 0 && seen.insert(appId).second)
-                seedIds.push_back(appId);
-        }
-        for (const auto& [appId, json] : g_cloudBlobByApp) {
-            (void)json;
             if (appId != 0 && seen.insert(appId).second)
                 seedIds.push_back(appId);
         }
